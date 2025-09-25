@@ -1,0 +1,13 @@
+[project]
+name = "puzzle-simulator"
+version = "0.1.0"
+description = "Puzzle solver simulator for PREN1 at HSLU"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "ipykernel>=6.30.1",
+    "numpy>=2.2.6",
+    "opencv-python>=4.11.0.86",
+    "pillow>=11.3.0",
+    "tk>=0.1.0",
+]
