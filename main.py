@@ -1,6 +1,6 @@
 import tkinter as tk
 from tkinter import Canvas, Button
-from PIL import Image, ImageTk
+from PIL import Image, ImageTk, ImageOps
 import random
 
 class PuzzleSimulator:
@@ -8,9 +8,10 @@ class PuzzleSimulator:
         self.root = root
         self.root.title("Puzzle Solver Proof of Concept")
 
-        self.canvas_width = 600
-        self.canvas_height = 400
-        self.piece_size = 99
+        self.canvas_width = 1000
+        self.canvas_height = 800
+        self.piece_size = 100
+        self.SCALE = (500, 500)
 
         self.canvas = Canvas(root, width=self.canvas_width, height=self.canvas_height, bg="white")
         self.canvas.pack()
@@ -26,7 +27,14 @@ class PuzzleSimulator:
 
         # Store pieces
         self.pieces = []
-        self.original_positions = [(100, 100), (200, 100), (100, 200), (200, 200)]
+        MARGIN = 50
+        IMG_CENTER = self.SCALE[0] // 2
+        self.original_positions = [
+            (MARGIN + IMG_CENTER, MARGIN + IMG_CENTER),
+            (MARGIN + IMG_CENTER + 220, MARGIN + 270),
+            (MARGIN + 220, MARGIN + IMG_CENTER + 150),
+            (MARGIN + IMG_CENTER + 190, MARGIN + IMG_CENTER + 170),
+        ]
         self.original_angles = [0, 0, 0, 0]
 
         # Load or create mock pieces
@@ -37,9 +45,15 @@ class PuzzleSimulator:
 
     def load_pieces(self):
         """Make mock puzzle pieces as colored squares (replace with real images)."""
-        colors = ["red", "green", "blue", "yellow"]
-        for color in colors:
-            img = Image.new("RGBA", (self.piece_size, self.piece_size), color)
+        image_paths = [
+            "assets/pieces-with-bg-transparent/piece_4.png",
+            "assets/pieces-with-bg-transparent/piece_3.png",
+            "assets/pieces-with-bg-transparent/piece_2.png",
+            "assets/pieces-with-bg-transparent/piece_1.png",
+        ]
+        for path in image_paths:
+            img = Image.open(path)
+            img = ImageOps.contain(img, self.SCALE)
             self.pieces.append({
                 "image": img,
                 "tk_img": None,
