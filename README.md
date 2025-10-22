@@ -14,9 +14,7 @@
    uv sync
    ```
 
-4. Start the Raspberry Pi Controller with `uv run main.py [--development]`
-
-5. (Install `ruff` to lint and format code. [VSCode Extension](https://marketplace.visualstudio.com/items?itemName=charliermarsh.ruff) or run `uvx ruff check` and `uvx ruff format`)
+4. (Install `ruff` to lint and format code. [VSCode Extension](https://marketplace.visualstudio.com/items?itemName=charliermarsh.ruff) or run `uvx ruff check` and `uvx ruff format`)
 
 ## `uv` - Package Manager
 
