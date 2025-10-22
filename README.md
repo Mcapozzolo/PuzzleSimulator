@@ -9,8 +9,6 @@
 3. Install dependencies:
 
    ```sh
-   uv venv
-   source .venv/bin/activate
    uv sync
    ```
 
