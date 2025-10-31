@@ -46,10 +46,10 @@ class PuzzleSimulator:
     def load_pieces(self):
         """Make mock puzzle pieces as colored squares (replace with real images)."""
         image_paths = [
-            "assets/pieces-with-bg-transparent/piece_4.png",
-            "assets/pieces-with-bg-transparent/piece_3.png",
-            "assets/pieces-with-bg-transparent/piece_2.png",
-            "assets/pieces-with-bg-transparent/piece_1.png",
+            "assets/pieces_with_bg_transparent/piece_4.png",
+            "assets/pieces_with_bg_transparent/piece_3.png",
+            "assets/pieces_with_bg_transparent/piece_2.png",
+            "assets/pieces_with_bg_transparent/piece_1.png",
         ]
         for path in image_paths:
             img = Image.open(path)
