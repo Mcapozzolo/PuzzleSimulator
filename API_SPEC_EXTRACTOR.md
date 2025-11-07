@@ -133,6 +133,8 @@ classDiagram
         +float rotation_deg
     }
 
+    class Image {}
+
     class Extractor {
         +extract_pieces_and_transformations(image, debug=False, config=None)
         -_to_gray(image, debug)
@@ -146,9 +148,10 @@ classDiagram
         -_assemble_pieces(pieces, debug)
     }
 
-    Extractor --> Piece : creates
+    Extractor --> Piece : produces
     Piece --> Edge : has
     Extractor --> PieceTransformation : produces
+    Extractor --> Image : optionally produces
 ```
 
 ## Sequenzdiagramm
