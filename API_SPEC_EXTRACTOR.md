@@ -31,11 +31,12 @@ Point = Tuple[int, int]
 
 class Edge:
     """Represents one side between two corners."""
-    def __init__(self, start: Point, end: Point, contour_segment: np.ndarray, kind: str):
+    def __init__(self, start: Point, end: Point, contour_segment: np.ndarray, length: int, kind: str):
         self.start = start
         self.end = end
         self.contour_segment = contour_segment  # Nx2 array of contour points
         self.kind = kind                        # 'flat' | 'innie' | 'outie'
+        self.length = length
 
 
 class Piece:
@@ -121,6 +122,7 @@ classDiagram
     class Edge {
         +Tuple[int,int] start
         +Tuple[int,int] end
+        +int length
         +np.ndarray contour_segment
         +str kind
     }
@@ -180,9 +182,15 @@ img = cv2.imread("puzzle_scene.jpg")
 extractor = Extractor()
 pieces, transforms, debug_images = extractor.extract_pieces_and_transformations(img, debug=True)
 
-for p, t in zip(pieces, transforms):
-    print(f"Piece at ({t.x:.1f}, {t.y:.1f}) rot={t.rotation_deg:.1f}°")
-
+# In the simulator show one debug image after the other
 for i in debug_images:
     show_image(i)
+
+# For the actual product the transformations need to be processed
+for p, t in zip(pieces, transforms):
+    move_to(t.x, t.y)
+    lift()
+    turn(t.rotation_deg)
+    move_to(t.x, t.y)
+    lower()
 ```
