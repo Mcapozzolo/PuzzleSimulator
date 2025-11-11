@@ -1,7 +1,6 @@
 import numpy as np
 from typing import List, Tuple
 
-Image = np.ndarray
 Point = Tuple[int, int]
 
 
@@ -17,7 +16,7 @@ class Edge:
 
 class Piece:
     """Represents one puzzle piece with local geometry."""
-    def __init__(self, piece_img: Image, corners: List[Point], edges: List[Edge]):
+    def __init__(self, piece_img: np.ndarray, corners: List[Point], edges: List[Edge]):
         self.piece_img = piece_img
         self.corners = corners
         self.edges = edges

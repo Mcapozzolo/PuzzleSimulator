@@ -14,7 +14,7 @@
             "name": "Python Debugger: Simulator",
             "type": "debugpy",
             "request": "launch",
-            "program": "${workspaceFolder}/simulator/main.py"
+            "module": "simulator.main"
         }
     ]
 }
