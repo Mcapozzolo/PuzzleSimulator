@@ -23,3 +23,9 @@ uv is a fast Python package manager that simplifies dependency management and vi
 ```sh
 uv add numpy
 ```
+
+## Run the simulator
+
+```sh
+uv run -m simulator.main
+```
