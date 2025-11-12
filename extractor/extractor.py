@@ -27,18 +27,6 @@ class Extractor(abc.ABC):
 class MockExtractor(Extractor):
     """Pipeline-based puzzle piece extractor."""
 
-    def __init__(self):
-        self.step_descriptions_ = [
-            "Input image loaded",
-            "Grayscale conversion applied",
-            "Contours detected",
-            "Pieces detected",
-            "Pieces extracted",
-            "Pieces corrected",
-            "Corners detected",
-            "Puzzle assembled",
-        ]
-
     def extract_pieces_and_transformations(
         self,
         image: np.ndarray,
