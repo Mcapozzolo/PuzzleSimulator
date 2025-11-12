@@ -9,7 +9,7 @@ class TopFrame(tk.Frame):
         super().__init__(parent, *args, **kwargs)
 
         # Create the label for step descriptions
-        self.step_label = tk.Label(self, font=("Helvetica", 16))
+        self.step_label = tk.Label(self, font=("Helvetica", 18))
         self.step_label.pack(side=tk.LEFT, pady=10)
 
     def set_text(self, text):
@@ -26,7 +26,7 @@ class NavigationFrame(tk.Frame):
 
         # Create buttons and link them to callback functions
         self.load_button = tk.Button(self, text="Bild laden", command=load_callback)
-        self.load_button.pack(side=tk.LEFT, padx=20, pady=10)
+        self.load_button.pack(side=tk.LEFT, padx=5, pady=10)
 
         self.next_button = tk.Button(self, text="Nächster Schritt", command=next_callback, state=tk.DISABLED)
         self.next_button.pack(side=tk.RIGHT, padx=5, pady=10)

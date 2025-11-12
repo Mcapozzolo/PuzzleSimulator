@@ -1,6 +1,7 @@
 import tkinter as tk
-import tkinter.scrolledtext as st
+import tkinter.filedialog as fd
 from PIL import Image, ImageTk, ImageOps
+import cv2
 
 from .frames import TopFrame, NavigationFrame
 
@@ -14,48 +15,66 @@ class PuzzleSolverSimulator(tk.Canvas):
         self.root = root
         self.root.title("PuzzleSolver Simulator")
 
-        self.dimensions = (1000, 600)
+        self.dimensions = (1200, 700)
         self.image_dimensions = (self.dimensions[0] - 100, self.dimensions[1] - 120)
 
         self.root.geometry(f"{self.dimensions[0]}x{self.dimensions[1]}")
+
+        # Row 0 (top_frame) - no vertical expansion
+        self.root.grid_rowconfigure(0, weight=0)
+        # Row 1 (log_view, image_label) - expands vertically
+        self.root.grid_rowconfigure(1, weight=1)
+        # Row 2 (nav_frame) - no vertical expansion
+        self.root.grid_rowconfigure(2, weight=0)
+
+        # Column 0 (log_view) - no horizontal expansion
+        self.root.grid_columnconfigure(0, weight=0)
+        # Column 1 (image_label) - expands horizontally
+        self.root.grid_columnconfigure(1, weight=1)
 
         # Extractor
         self.extractor = extractor
 
         # State Variables
         self.debug_images_np = []   # Holds raw numpy images
-        self.step_descriptions = [  # Holds the description for each step
-            "Input image loaded",
-            "Grayscale conversion applied",
-            "Contours detected",
-            "Pieces detected",
-            "Pieces extracted",
-            "Pieces corrected",
-            "Corners detected",
-            "Puzzle assembled",
+        self.step_descriptions = [
+            "Eingabebild geladen",
+            "Graustufen-Konvertierung angewendet",
+            "Konturen erkannt",
+            "Puzzleteile erkannt",
+            "Puzzleteile extrahiert",
+            "Puzzleteile korrigiert",
+            "Ecken erkannt",
+            "Puzzle zusammengesetzt",
         ]
-        self.current_step = -1
+        self.current_step = 0
+        self.max_step = 0
 
         # UI setup
         self.top_frame = TopFrame(root)
-        self.top_frame.pack(side=tk.TOP, fill=tk.X, padx=20, pady=1)
-        self.top_frame.set_text("Bitte ein Bild laden, um zu starten.")
+        # Grid layout: Top row, spans 2 columns, sticks to East-West (horizontal)
+        self.top_frame.grid(row=0, column=0, columnspan=2, sticky="ew", padx=20, pady=1)
 
-        # Log views
-        self.log_view = st.ScrolledText(
+        # Log view
+        self.log_view = tk.Text(
             root,
             wrap=tk.WORD,
-            width=40,
-            height=int((self.image_dimensions[1] - 20) / 14),
+            width=50,
             font=("Helvetica", 14),
             state=tk.DISABLED,
-            borderwidth=0
+            borderwidth=0,
+            highlightthickness=0,
+            padx=5,
+            pady=5,
+            spacing1=5
         )
-        self.log_view.pack(side=tk.LEFT, padx=10, pady=10)
+        # Grid layout: Center row, first column, sticks to all sides
+        self.log_view.grid(row=1, column=0, sticky="nsew", padx=20, pady=10)
 
         # Image display area
         self.image_label = tk.Label(root)
-        self.image_label.pack(pady=10, padx=20, fill=tk.BOTH, expand=True)
+        # Grid layout: Center row, second column, sticks to all sides
+        self.image_label.grid(row=1, column=1, sticky="nsew", pady=10, padx=10)
 
         # Navigation frame
         self.nav_frame = NavigationFrame(
@@ -64,38 +83,38 @@ class PuzzleSolverSimulator(tk.Canvas):
             prev_callback=self.show_prev_step,
             next_callback=self.show_next_step
         )
-        self.nav_frame.pack(side=tk.BOTTOM, fill=tk.X, padx=20, pady=1)
+        # Grid layout: Bottom row, spans 2 columns, sticks to East-West
+        self.nav_frame.grid(row=2, column=0, columnspan=2, sticky="ew", padx=20, pady=1)
 
-        self.add_log_message("LOG: Simulator started")
-        self.add_log_message("LOG: Simulator started 2")
-
-    def add_log_message(self, message):
-        self.log_view.configure(state=tk.NORMAL)
-        self.log_view.insert(tk.INSERT, message + '\n')
-        self.log_view.configure(state=tk.DISABLED)
+        self.set_title("PuzzleSolver Simulator | Gruppe 19")
+        self.add_log_message("Simulator gestarted")
+        self.add_log_message("Bitte ein Bild laden, um zu starten.")
 
     def load_and_process_image(self):
         """
         Loads an image, calls the extractor, and populates the simulator.
         """
 
-        # To enable file dialog, uncomment the section below
+        # Reset state
+        self.clear_log()
+        self.max_step = 0
+        self.current_step = 0
 
-        # file_path = filedialog.askopenfilename(filetypes=[("Image Files", "*.png *.jpg *.jpeg *.bmp")])
+        file_path = fd.askopenfilename(filetypes=[("Image Files", "*.png *.jpg *.jpeg")])
         # if not file_path:
         #     return
+
         # try:
-        #     pil_image = Image.open(file_path)
+        #     image = cv2.imread(file_path)
         # except Exception as e:
-        #     self.top_frame.set_text(f"Fehler beim Laden des Bildes: {e}")
+        #     self.add_log_message(f"Fehler beim Laden des Bildes: {e}")
         #     return
 
         try:
             # Call the extractor
             _pieces, _transforms, self.debug_images_np = self.extractor.extract_pieces_and_transformations(image=None, debug=True)
         except Exception as e:
-            # Update UI on error
-            self.top_frame.set_text(f"Fehler bei der Bildverarbeitung: {e}")
+            self.add_log_message(f"Fehler bei der Bildverarbeitung: {e}")
             return
 
         if not self.debug_images_np:
@@ -115,14 +134,30 @@ class PuzzleSolverSimulator(tk.Canvas):
 
         # Update Image
         img_pil = Image.fromarray(self.debug_images_np[self.current_step])
-        img_pil = ImageOps.contain(img_pil, self.image_dimensions)
+
+        # Calculate new dimensions while maintaining aspect ratio
+        # We use the actual label size for containment
+        label_width = self.image_label.winfo_width()
+        label_height = self.image_label.winfo_height()
+
+        # Use a default size if window not drawn yet
+        if label_width <= 1 or label_height <= 1:
+            label_width, label_height = self.image_dimensions
+
+        img_pil = ImageOps.contain(img_pil, (label_width, label_height))
         img_tk = ImageTk.PhotoImage(img_pil)
+
         self.image_label.config(image=img_tk)
+        self.image_label.image = img_tk # Keep a reference
 
         # Update Step Label text via the TopFrame's method
         step_desc = self.step_descriptions[self.current_step]
         total_steps = len(self.debug_images_np)
-        self.top_frame.set_text(f"Schritt {self.current_step + 1}/{total_steps}: {step_desc}")
+        self.set_title(f"Schritt {self.current_step + 1}/{total_steps}: {step_desc}")
+        self.add_log_message(step_desc)
+
+        if self.current_step == total_steps - 1:
+            self.log_transformation_results()
 
         # Update Button States via the NavigationFrame's method
         can_go_prev = self.current_step > 0
@@ -133,7 +168,9 @@ class PuzzleSolverSimulator(tk.Canvas):
         """Moves to the next step if possible."""
         total_steps = len(self.debug_images_np)
         if self.current_step < total_steps - 1:
-            self.current_step += 1
+            next_step = self.current_step + 1
+            self.max_step = max(self.max_step, next_step)
+            self.current_step = next_step
             self.update_display()
 
     def show_prev_step(self):
@@ -141,3 +178,34 @@ class PuzzleSolverSimulator(tk.Canvas):
         if self.current_step > 0:
             self.current_step -= 1
             self.update_display()
+
+    def add_log_message(self, message):
+        # If we are stepping back, do not add new log messages
+        if self.max_step > self.current_step:
+            return
+
+        self.log_view.configure(state=tk.NORMAL)
+        self.log_view.insert(tk.INSERT, f"[LOG]: {message}\n")
+        self.log_view.configure(state=tk.DISABLED)
+
+    def clear_log(self):
+        self.log_view.configure(state=tk.NORMAL)
+        self.log_view.delete(1.0, tk.END)
+        self.log_view.configure(state=tk.DISABLED)
+
+    def log_transformation_results(self):
+        self.add_log_message("Puzzleteil 1:")
+        self.add_log_message(" - Bewegung: (1222, 1222) -> (12445, 33333)")
+        self.add_log_message(" - Rotation: 30°")
+        self.add_log_message("Puzzleteil 2:")
+        self.add_log_message(" - Bewegung: (222, 222) -> (4445, 5555)")
+        self.add_log_message(" - Rotation: 15°")
+        self.add_log_message("Puzzleteil 3:")
+        self.add_log_message(" - Bewegung: (555, 666) -> (7777, 8888)")
+        self.add_log_message(" - Rotation: 45°")
+        self.add_log_message("Puzzleteil 4:")
+        self.add_log_message(" - Bewegung: (999, 111) -> (1212, 1313)")
+        self.add_log_message(" - Rotation: 60°")
+
+    def set_title(self, title):
+        self.top_frame.set_text(title)
