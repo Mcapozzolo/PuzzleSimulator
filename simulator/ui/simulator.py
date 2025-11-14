@@ -126,11 +126,12 @@ class PuzzleSolverSimulator(tk.Canvas):
             puzzle = Puzzle(file_path)
             puzzle.solve_puzzle()
 
-            _pieces, _transforms, self.debug_images_np = (
-                self.extractor.extract_pieces_and_transformations(
-                    image=None, debug=True
-                )
-            )
+            self.debug_images_np = puzzle.get_debug_images()
+            # _pieces, _transforms, self.debug_images_np = (
+            #     self.extractor.extract_pieces_and_transformations(
+            #         image=None, debug=True
+            #     )
+            # )
         except Exception as e:
             self.add_log_message(f"Fehler bei der Bildverarbeitung: {e}")
             return

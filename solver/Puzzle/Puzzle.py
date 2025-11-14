@@ -38,22 +38,23 @@ class Puzzle:
         """Helper to log informations to the GUI"""
 
         print(" ".join(map(str, args)))
-        if self.viewer:
-            self.viewer.addLog(args)
 
-    def __init__(self, path, viewer=None, green_screen=False):
-        """Extract information of pieces in the img at `path` and start computation of the solution"""
+    def __init__(self, path, green_screen=False):
+        """Extract information of pieces in the img at `path` and start computation of the solution
+
+        Note: viewer support removed; debug images are stored in-memory on the Puzzle instance.
+        """
 
         self.pieces_ = None
         factor = 0.40
         while self.pieces_ is None:
             factor += 0.01
-            self.extract = Extractor(path, viewer, green_screen, factor)
+            # Viewer removed; pass None to Extractor for compatibility
+            self.extract = Extractor(path, None, green_screen, factor)
             self.pieces_ = self.extract.extract()
 
         self.border_pieces = [p for p in self.pieces_ if p.is_border]
         self.non_border_pieces = [p for p in self.pieces_ if not p.is_border]
-        self.viewer = viewer
         self.green_ = green_screen
         self.connected_directions = []
         self.diff = {}
@@ -63,6 +64,9 @@ class Puzzle:
             len(self.pieces_), len(self.border_pieces)
         )
         self.extremum = (-1, -1, 1, 1)
+        # In-memory storage for debug images produced during solving
+        # Simple list of numpy.ndarray objects in the order they were produced (border_img then colored_img)
+        self.debug_images = []
 
     def solve_puzzle(self):
         self.log(">>> START solving puzzle")
@@ -81,13 +85,7 @@ class Puzzle:
 
         self.log("Number of border pieces: ", len(border_pieces) + 1)
 
-        self.export_pieces(
-            os.path.join(os.environ["ZOLVER_TEMP_DIR"], "stick{0:03d}".format(1) + ".png"),
-            os.path.join(os.environ["ZOLVER_TEMP_DIR"], "colored{0:03d}".format(1) + ".png"),
-            "Border types".format(),
-            "Step {0:03d}".format(1),
-            display_border=True,
-        )
+        self.export_pieces()
 
         self.log(">>> START solve border")
         start_piece = connected_pieces[0]
@@ -112,7 +110,7 @@ class Puzzle:
 
         self.log(">>> SAVING result...")
         self.translate_puzzle()
-        self.export_pieces(os.path.join(os.environ["ZOLVER_TEMP_DIR"], "stick.png"), os.path.join(os.environ["ZOLVER_TEMP_DIR"], "colored.png"), display=False)
+        self.export_pieces()
 
         # Two sets of pieces: Already connected ones and pieces remaining to connect to the others
         # The first piece has an orientation like that:
@@ -215,11 +213,7 @@ class Puzzle:
                 left_pieces, self.diff, best_p, edge_connected=block_best_e
             )
 
-            self.export_pieces(
-                os.path.join(os.environ["ZOLVER_TEMP_DIR"], "stick{0:03d}.png".format(len(self.connected_directions))),
-                os.path.join(os.environ["ZOLVER_TEMP_DIR"], "colored{0:03d}.png".format(len(self.connected_directions))),
-                name_colored="Step {0:03d}".format(len(self.connected_directions)),
-            )
+            self.export_pieces()
 
         return connected_pieces
 
@@ -533,15 +527,7 @@ class Puzzle:
         for p in self.pieces_:
             p.translate(minX, minY)
 
-    def export_pieces(
-        self,
-        path_contour,
-        path_colored,
-        name_contour=None,
-        name_colored=None,
-        display=True,
-        display_border=False,
-    ):
+    def export_pieces(self):
         """
         Export the contours and the colored image
 
@@ -549,51 +535,53 @@ class Puzzle:
         :param path_colored: Path used to export the colored image
         :return: the best edge found in the bloc
         """
-
         minX, minY, maxX, maxY = self.get_bbox()
-        colored_img = np.zeros((maxX - minX, maxY - minY, 3))
-        border_img = np.zeros((maxX - minX, maxY - minY, 3))
+
+        # create uint8 images (H, W, 3)
+        h = maxX - minX
+        w = maxY - minY
+        if h <= 0 or w <= 0:
+            # nothing to export
+            return
+
+        colored_img = np.zeros((h, w, 3), dtype=np.uint8)
+        border_img = np.zeros((h, w, 3), dtype=np.uint8)
 
         for piece in self.pieces_:
             # Reframe piece pixels to (0, 0)
             tmp = [
                 (x - minX, y - minY, c)
                 for (x, y), c in piece.pixels.items()
-                if 0 <= x - minX < colored_img.shape[0]
-                and 0 <= y - minY < colored_img.shape[1]
+                if 0 <= x - minX < h and 0 <= y - minY < w
             ]
-            x, y, c = (
-                list(map(lambda e: int(e[0]), tmp)),
-                list(map(lambda e: int(e[1]), tmp)),
-                list(map(lambda e: e[2], tmp)),
-            )
+            if not tmp:
+                continue
+            x = list(map(lambda e: int(e[0]), tmp))
+            y = list(map(lambda e: int(e[1]), tmp))
+            c = list(map(lambda e: e[2], tmp))
             colored_img[x, y] = c
 
-            if display_border:
-                # Contours
-                for e in piece.edges_:
-                    for y, x in e.shape:
-                        y, x = y - minY, x - minX
-                        if (
-                            0 <= y < border_img.shape[1]
-                            and 0 <= x < border_img.shape[0]
-                        ):
-                            rgb = (0, 0, 0)
-                            if e.type == TypeEdge.HOLE:
-                                rgb = (102, 178, 255)
-                            if e.type == TypeEdge.HEAD:
-                                rgb = (255, 255, 102)
-                            if e.type == TypeEdge.UNDEFINED:
-                                rgb = (255, 0, 0)
-                            if e.connected:
-                                rgb = (0, 255, 0)
-                            border_img[x, y, 0] = rgb[2]
-                            border_img[x, y, 1] = rgb[1]
-                            border_img[x, y, 2] = rgb[0]
+            # Contours
+            for e in piece.edges_:
+                for yy, xx in e.shape:
+                    y0, x0 = yy - minY, xx - minX
+                    if 0 <= y0 < w and 0 <= x0 < h:
+                        rgb = (0, 0, 0)
+                        if e.type == TypeEdge.HOLE:
+                            rgb = (102, 178, 255)
+                        if e.type == TypeEdge.HEAD:
+                            rgb = (255, 255, 102)
+                        if e.type == TypeEdge.UNDEFINED:
+                            rgb = (255, 0, 0)
+                        if e.connected:
+                            rgb = (0, 255, 0)
+                        border_img[x0, y0, 0] = rgb[2]
+                        border_img[x0, y0, 1] = rgb[1]
+                        border_img[x0, y0, 2] = rgb[0]
 
-                cv2.imwrite(path_contour, border_img)
-
-        cv2.imwrite(path_colored, colored_img)
+        # Append images to in-memory debug list in order: border image then colored image
+        self.debug_images.append(border_img)
+        self.debug_images.append(colored_img)
 
     def compute_possible_size(self, nb_piece, nb_border) -> list[tuple]:
         """
@@ -697,3 +685,27 @@ class Puzzle:
                 display_dim(dims),
             )
             self.possible_dim = dims
+
+    def save_debug_images(self, out_dir: str | None = None):
+        """
+        Persist the in-memory debug images to disk. If out_dir is None, uses ZOLVER_TEMP_DIR env var.
+
+        This is optional; the solver now keeps images in-memory during processing and
+        this helper lets you write them out afterwards for compatibility or debugging.
+        """
+        if out_dir is None:
+            out_dir = os.environ.get("ZOLVER_TEMP_DIR")
+        if out_dir is None:
+            raise ValueError("No output directory provided and ZOLVER_TEMP_DIR not set")
+        os.makedirs(out_dir, exist_ok=True)
+        for i, img in enumerate(self.debug_images):
+            try:
+                img_out = np.clip(img, 0, 255).astype("uint8")
+                cv2.imwrite(os.path.join(out_dir, f"debug_{i:03d}.png"), img_out)
+            except Exception:
+                # ignore failures to save individual images
+                pass
+
+    def get_debug_images(self) -> list:
+        """Return the in-memory list of debug images (numpy arrays) in order."""
+        return list(self.debug_images)
