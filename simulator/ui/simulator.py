@@ -2,6 +2,7 @@ import tkinter as tk
 import tkinter.filedialog as fd
 from PIL import Image, ImageTk, ImageOps
 import cv2
+from solver.Puzzle.Puzzle import Puzzle
 
 from .frames.top_frame import TopFrame
 from .frames.content_frame import ContentFrame
@@ -122,6 +123,9 @@ class PuzzleSolverSimulator(tk.Canvas):
 
         try:
             # Call the extractor
+            puzzle = Puzzle(file_path)
+            puzzle.solve_puzzle()
+
             _pieces, _transforms, self.debug_images_np = (
                 self.extractor.extract_pieces_and_transformations(
                     image=None, debug=True

@@ -1,3 +1,4 @@
+import os
 import tkinter as tk
 
 from extractor import MockExtractor
@@ -10,6 +11,7 @@ if __name__ == "__main__":
     """
     root = tk.Tk()
 
+    os.environ["ZOLVER_TEMP_DIR"] = "resources/debug"
     extractor = MockExtractor()
     app = PuzzleSolverSimulator(root, extractor)
 
