@@ -1,4 +1,4 @@
-# Puzzle Piece Extractor – API Specification
+# Puzzle Piece Solver – API Specification
 
 ## Einleitung
 
@@ -55,10 +55,10 @@ class PieceTransformation:
         self.rotation_deg = rotation_deg
 
 
-class Extractor:
-    """Pipeline-based puzzle piece extractor."""
+class Solver:
+    """Pipeline-based puzzle piece Solver."""
 
-    def extract_pieces_and_transformations(
+    def solve(
         self,
         image: Image,
         *,
@@ -135,8 +135,8 @@ classDiagram
 
     class Image {}
 
-    class Extractor {
-        +extract_pieces_and_transformations(image, debug=False, config=None)
+    class Solver {
+        +solve(image, debug=False, config=None)
         -_to_gray(image, debug)
         -_color_threshold(gray, debug)
         -_detect_pieces(mask, debug)
@@ -148,10 +148,10 @@ classDiagram
         -_assemble_pieces(pieces, debug)
     }
 
-    Extractor --> Piece : produces
+    Solver --> Piece : produces
     Piece --> Edge : has
-    Extractor --> PieceTransformation : produces
-    Extractor --> Image : optionally produces
+    Solver --> PieceTransformation : produces
+    Solver --> Image : optionally produces
 ```
 
 ## Sequenzdiagramm
@@ -159,31 +159,31 @@ classDiagram
 ```mermaid
 sequenceDiagram
     participant Simulator
-    participant Extractor
+    participant Solver
 
-    Simulator->>Extractor: extract_pieces_and_transformations(image)
-    activate Extractor
+    Simulator->>Solver: extract_pieces_and_transformations(image)
+    activate Solver
 
-    Extractor->>Extractor: _to_gray(image)
-    Extractor->>Extractor: _color_threshold(gray)
-    Extractor->>Extractor: _detect_pieces(mask)
-    Extractor->>Extractor: _extract_and_crop_pieces(image, contours)
-    Extractor->>Extractor: _correct_pieces(cropped)
-    Extractor->>Extractor: _detect_contours(pieces)
-    Extractor->>Extractor: _extract_edges(contours)
-    Extractor->>Extractor: _vectorize_and_classify_edges(edges)
-    Extractor->>Extractor: _assemble_pieces(pieces)
+    Solver->>Solver: _to_gray(image)
+    Solver->>Solver: _color_threshold(gray)
+    Solver->>Solver: _detect_pieces(mask)
+    Solver->>Solver: _extract_and_crop_pieces(image, contours)
+    Solver->>Solver: _correct_pieces(cropped)
+    Solver->>Solver: _detect_contours(pieces)
+    Solver->>Solver: _extract_edges(contours)
+    Solver->>Solver: _vectorize_and_classify_edges(edges)
+    Solver->>Solver: _assemble_pieces(pieces)
 
-    Extractor-->>Simulator: (pieces[], transformations[], debug_images[])
-    deactivate Extractor
+    Solver-->>Simulator: (pieces[], transformations[], debug_images[])
+    deactivate Solver
 ```
 
 ## Beispiel
 
 ```python
 img = cv2.imread("puzzle_scene.jpg")
-extractor = Extractor()
-pieces, transforms, debug_images = extractor.extract_pieces_and_transformations(img, debug=True)
+solver = Solver()
+pieces, transforms, debug_images = solver.solve(img, debug=True)
 
 # In the simulator show one debug image after the other
 for i in debug_images:
