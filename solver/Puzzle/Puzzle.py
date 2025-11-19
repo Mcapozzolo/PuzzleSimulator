@@ -2,6 +2,7 @@ import cv2
 import numpy as np
 import os
 import sys
+import logging as log
 
 from .Distance import real_edge_compute, generated_edge_compute
 from .Extractor import Extractor
@@ -34,28 +35,24 @@ class Puzzle:
     Class used to store all informations about the puzzle
     """
 
-    def log(self, *args):
-        """Helper to log informations to the GUI"""
-
-        print(" ".join(map(str, args)))
-
-    def __init__(self, path, green_screen=False):
+    def __init__(self, path):
         """Extract information of pieces in the img at `path` and start computation of the solution
-
-        Note: viewer support removed; debug images are stored in-memory on the Puzzle instance.
         """
 
+        self.image_path_ = path
         self.pieces_ = None
-        factor = 0.40
-        while self.pieces_ is None:
-            factor += 0.01
-            # Viewer removed; pass None to Extractor for compatibility
-            self.extract = Extractor(path, None, green_screen, factor)
-            self.pieces_ = self.extract.extract()
+        self.debug_images_ = []
+
+    def extract_pieces(self):
+        log.info("Extracting pieces...")
+
+        self.extract = Extractor(self.image_path_)
+        self.pieces_, debug_images = self.extract.extract()
+
+        self.debug_images_.extend(debug_images)
 
         self.border_pieces = [p for p in self.pieces_ if p.is_border]
         self.non_border_pieces = [p for p in self.pieces_ if not p.is_border]
-        self.green_ = green_screen
         self.connected_directions = []
         self.diff = {}
         self.edge_to_piece = {e: p for p in self.pieces_ for e in p.edges_}
@@ -64,12 +61,9 @@ class Puzzle:
             len(self.pieces_), len(self.border_pieces)
         )
         self.extremum = (-1, -1, 1, 1)
-        # In-memory storage for debug images produced during solving
-        # Simple list of numpy.ndarray objects in the order they were produced (border_img then colored_img)
-        self.debug_images = []
 
     def solve_puzzle(self):
-        self.log(">>> START solving puzzle")
+        log.info("Solving puzzle...")
 
         # Separate border pieces from the other
         connected_pieces = []
@@ -83,15 +77,14 @@ class Puzzle:
                 border_pieces.remove(piece)
                 break
 
-        self.log("Number of border pieces: ", len(border_pieces) + 1)
+        log.info("Number of border pieces: ", len(border_pieces) + 1)
 
         self.export_pieces()
 
-        self.log(">>> START solve border")
+        log.info("Solve border...")
         start_piece = connected_pieces[0]
         start_piece.coord = (0, 0)
         self.corner_pos = [((0, 0), start_piece)]  # we start with a corner
-
         for i in range(4):
             if (
                 start_piece.edge_in_direction(Directions.S).connected
@@ -99,16 +92,14 @@ class Puzzle:
             ):
                 break
             start_piece.rotate_edges(1)
-
         self.extremum = (0, 0, 1, 1)
-
         self.strategy = Strategy.BORDER
         connected_pieces = self.solve(connected_pieces, border_pieces)
-        self.log(">>> START solve middle")
+
+        log.info("Solve middle...")
         self.strategy = Strategy.FILL
         self.solve(connected_pieces, non_border_pieces)
 
-        self.log(">>> SAVING result...")
         self.translate_puzzle()
         self.export_pieces()
 
@@ -183,7 +174,7 @@ class Puzzle:
             self.diff = self.add_to_diffs(left_pieces)
 
         while len(left_pieces) > 0:
-            self.log(
+            log.info(
                 "<--- New match ---> pieces left: ",
                 len(left_pieces),
                 "extremum:",
@@ -256,10 +247,7 @@ class Puzzle:
                 for e2 in piece.edges_:
                     e2.backup_shape()
                 stick_pieces(e, piece, edge)
-                if self.green_:
-                    diff_e[edge] = real_edge_compute(edge, e)
-                else:
-                    diff_e[edge] = generated_edge_compute(edge, e)
+                diff_e[edge] = generated_edge_compute(edge, e)
                 for e2 in piece.edges_:
                     e2.restore_backup_shape()
 
@@ -269,7 +257,7 @@ class Puzzle:
     def fallback(self, diff, connected_direction, left_piece, strat=Strategy.NAIVE):
         """If a strategy does not work fallback to another one"""
 
-        self.log(
+        log.info(
             "Fail to solve the puzzle with", self.strategy, "falling back to", strat
         )
         old_strat = self.strategy
@@ -345,7 +333,7 @@ class Puzzle:
                 if best_e is not None:
                     break
                 elif len(best_coord):
-                    self.log("Fall back to a worst", self.strategy)
+                    log.info("Fall back to a worst", self.strategy)
             if best_e is None:
                 best_bloc_e, best_e = self.fallback(
                     diff, connected_direction, left_piece
@@ -437,10 +425,7 @@ class Puzzle:
                 for e2 in piece.edges_:
                     e2.backup_shape()
                 stick_pieces(e, piece, edge)
-                if self.green_:
-                    diff_e[edge] = real_edge_compute(edge, e)
-                else:
-                    diff_e[edge] = generated_edge_compute(edge, e)
+                diff_e[edge] = generated_edge_compute(edge, e)
                 for e2 in piece.edges_:
                     e2.restore_backup_shape()
 
@@ -504,7 +489,7 @@ class Puzzle:
             self.update_dimension()
 
         best_p.coord = (new_coord[1], new_coord[0])
-        self.log("Placed:", best_p.type, "at", best_p.coord)
+        log.info("Placed:", best_p.type, "at", best_p.coord)
 
     def translate_puzzle(self):
         """Translate all pieces to the top left corner to be sure the puzzle is in the image"""
@@ -580,8 +565,8 @@ class Puzzle:
                         border_img[x0, y0, 2] = rgb[0]
 
         # Append images to in-memory debug list in order: border image then colored image
-        self.debug_images.append(border_img)
-        self.debug_images.append(colored_img)
+        self.debug_images_.append(border_img)
+        self.debug_images_.append(colored_img)
 
     def compute_possible_size(self, nb_piece, nb_border) -> list[tuple]:
         """
@@ -595,7 +580,7 @@ class Puzzle:
             w, h = i, (nb_edge_border // 2) - i
             if w * h == nb_middle:
                 possibilities.append((w + 1, h + 1))
-        self.log(
+        log.info(
             "Possible sizes: (",
             nb_piece,
             "pieces with",
@@ -629,7 +614,7 @@ class Puzzle:
             )
             if len(filtered):
                 if update_dim and len(filtered) != len(self.possible_dim):
-                    self.log(
+                    log.info(
                         "Update possible dimensions with corner place:",
                         display_dim(filtered),
                     )
@@ -643,7 +628,7 @@ class Puzzle:
             )
             if len(filtered):
                 if update_dim and len(filtered) != len(self.possible_dim):
-                    self.log(
+                    log.info(
                         "Update possible dimensions with corner place:",
                         display_dim(filtered),
                     )
@@ -678,7 +663,7 @@ class Puzzle:
             if maxX <= x and maxY <= y:
                 dims.append((x, y))
         if len(dims) != len(self.possible_dim):
-            self.log(
+            log.info(
                 "Update possible dimensions with extremum",
                 self.extremum,
                 ":",
@@ -686,26 +671,6 @@ class Puzzle:
             )
             self.possible_dim = dims
 
-    def save_debug_images(self, out_dir: str | None = None):
-        """
-        Persist the in-memory debug images to disk. If out_dir is None, uses ZOLVER_TEMP_DIR env var.
-
-        This is optional; the solver now keeps images in-memory during processing and
-        this helper lets you write them out afterwards for compatibility or debugging.
-        """
-        if out_dir is None:
-            out_dir = os.environ.get("ZOLVER_TEMP_DIR")
-        if out_dir is None:
-            raise ValueError("No output directory provided and ZOLVER_TEMP_DIR not set")
-        os.makedirs(out_dir, exist_ok=True)
-        for i, img in enumerate(self.debug_images):
-            try:
-                img_out = np.clip(img, 0, 255).astype("uint8")
-                cv2.imwrite(os.path.join(out_dir, f"debug_{i:03d}.png"), img_out)
-            except Exception:
-                # ignore failures to save individual images
-                pass
-
     def get_debug_images(self) -> list:
         """Return the in-memory list of debug images (numpy arrays) in order."""
-        return list(self.debug_images)
+        return self.debug_images_

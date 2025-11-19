@@ -14,25 +14,8 @@ from solver.Puzzle.Enums import directions, TypeEdge
 from solver.Puzzle.PuzzlePiece import PuzzlePiece
 from .peak_detect import detect_peaks
 from solver.Puzzle.Distance import rgb2hsl
-
-"""
-Modul: Puzzle/img_processing.py
-
-Aufgabe:
-- Analysiert die Konturen einzelner Puzzleteile.
-- Bestimmt lokale Winkelverläufe, glättet sie und erkennt Eckpunkte (Corners).
-- Klassifiziert Kanten in:
-    * BORDER – Rahmenkante
-    * HOLE – Einbuchtung
-    * HEAD – Ausbuchtung
-- Extrahiert Farbinformationen entlang der Kanten zur späteren Kanten-Matching-Phase.
-- Baut daraus PuzzlePiece-Objekte für den Solver.
-
-Wichtige externe Abhängigkeiten:
-- OpenCV (cv2) für Konturerkennung und Bildmasken
-- NumPy / SciPy für Signal- und Matrixoperationen
-- Matplotlib & Pickle für Debug- und Exportzwecke
-"""
+from multiprocessing import Pool, cpu_count
+import itertools
 
 
 COUNT = 0
@@ -476,196 +459,16 @@ def my_find_corner_signature(cnt, green=False):
     return best_fit, edges, types_pieces[1:]
 
 
-def export_contours(
-    img, img_bw, contours, path, modulo, viewer=None, green=False, export_img=False
-):
-    """
-    Baut aus allen Konturen die einzelnen Puzzle-Teile auf.
-
-    Schritte:
-    1. Für jede Kontur → finde Kanten und Typen (via my_find_corner_signature).
-    2. Erstelle Masken und schneide das Puzzleteil aus dem Originalbild.
-    3. Berechne Median-Farben entlang jeder Kante.
-    4. Erzeuge PuzzlePiece-Objekte mit geometrischen und Farbdaten.
-    5. (Optional) Exportiere Debug-Bilder und zeige sie im Viewer.
-
-    Parameter:
-    - img: Originalbild (RGB)
-    - img_bw: Binärbild (Schwarz/Weiss)
-    - contours: erkannte Konturen
-    - path: Speicherort für exportierte Bilder
-    - modulo: Spaltenanzahl bei exportierten Bildrastern
-    - viewer: GUI-Objekt (zum Anzeigen in Zolver)
-    - green: Aktiviert Grün-Screen-Modus (andere Filterparameter)
-    - export_img: True → speichert Debug-Bilder
-    - return: puzzle array
-    """
-
-    puzzle_pieces = []
-    list_img = []
-    out_color = np.zeros_like(img)
-
-    with Pool(cpu_count()) as p:
-        # Filter tiny contours early (avoid processing screws / small blobs)
-        image_area = img.shape[0] * img.shape[1]
-        MIN_AREA = max(1500, int(0.0008 * image_area))  # tweakable threshold
-        contours_filtered = [c for c in contours if cv2.contourArea(c) >= MIN_AREA]
-
-        if not contours_filtered:
-            print("export_contours: no contours after area filtering")
-            return None
-
-        # Use contours_filtered for signature extraction
-        signatures = p.starmap(
-            my_find_corner_signature, zip(contours_filtered, itertools.repeat(green))
-        )
-
-        # Defensive: filter out failed signature computations
-        signatures = [s for s in signatures if s is not None]
-
-        if not signatures:
-            print("export_contours: no valid signatures found, aborting")
-            return None
-
-    for idx, cnt in enumerate(contours):
-        corners, edges_shape, types_edges = signatures[idx]
-        if corners is None:
-            return None
-
-        mask_border = np.zeros_like(img_bw)
-        mask_full = np.zeros_like(img_bw)
-        mask_full = cv2.drawContours(mask_full, contours, idx, 255, -1)
-        mask_border = cv2.drawContours(mask_border, contours, idx, 255, 1)
-
-        img_piece = np.zeros_like(img)
-        img_piece[mask_full == 255] = img[mask_full == 255]
-
-        pixels = {
-            (x, y): img_piece[x, y] for x, y in tuple(zip(*np.where(mask_full == 255)))
-        }
-
-        # go faster, use only a subset of the img with the piece
-        x_bound, y_bound, w_bound, h_bound = cv2.boundingRect(cnt)
-        img_piece_tiny = img_piece[
-            y_bound : y_bound + h_bound, x_bound : x_bound + w_bound
-        ]
-        mask_border_tiny = mask_border[
-            y_bound : y_bound + h_bound, x_bound : x_bound + w_bound
-        ]
-        mask_full_tiny = mask_full[
-            y_bound : y_bound + h_bound, x_bound : x_bound + w_bound
-        ]
-
-        mask_around_tiny = np.zeros_like(mask_full_tiny)
-        mask_inv_border_tiny = cv2.bitwise_not(mask_border_tiny)
-        mask_full_tiny = cv2.bitwise_and(
-            mask_full_tiny, mask_full_tiny, mask=mask_inv_border_tiny
-        )
-
-        # Find mean color around edge
-        color_vect = []
-        for i in range(4):
-            color_edge = []
-            shape = edges_shape[i]
-            for ip, p in enumerate(shape):
-                if ip != 0:
-                    p2 = shape[ip - 1]
-                    cv2.circle(
-                        mask_around_tiny,
-                        (p2[0] - x_bound, p2[1] - y_bound),
-                        5,
-                        0,
-                        -1,
-                    )
-                cv2.circle(
-                    mask_around_tiny,
-                    (p[0] - x_bound, p[1] - y_bound),
-                    5,
-                    255,
-                    -1,
-                )
-
-                mask_around_tiny = cv2.bitwise_and(
-                    mask_around_tiny, mask_around_tiny, mask=mask_full_tiny
-                )
-
-                neighbors_color = [
-                    img_piece_tiny[y, x]
-                    for y, x in tuple(zip(*np.where(mask_around_tiny == 255)))
-                ]
-                rgb = np.median(neighbors_color, axis=0)
-                color_edge.append(rgb2hsl(*rgb))
-                out_color[p[1], p[0]] = rgb
-
-            color_vect.append(np.array(color_edge))
-
-        edges = [
-            Edge(
-                s,
-                c,
-                edge_type=types_edges[i],
-                direction=directions[i],
-                connected=types_edges[i] == TypeEdge.BORDER,
-            )
-            for i, (s, c) in enumerate(zip(edges_shape, color_vect))
-        ]
-        puzzle_pieces.append(PuzzlePiece(edges, pixels))
-
-        if export_img:
-            mask_border = np.zeros_like(img_bw)
-            for i in range(4):
-                for p in edges_shape[i]:
-                    mask_border[p[1], p[0]] = 255
-
-            out = np.zeros_like(img_bw)
-            out[mask_border == 255] = img_bw[mask_border == 255]
-
-            x, y, w, h = cv2.boundingRect(cnt)
-            out2 = out[y : y + h, x : x + w]
-
-            list_img.append(out2)
-
-    if export_img:
-        max_height = max([x.shape[0] for x in list_img])
-        max_width = max([x.shape[1] for x in list_img])
-        pieces_img = np.zeros(
-            [max_height * (int(len(list_img) / modulo) + 1), max_width * modulo],
-            dtype=np.uint8,
-        )
-        for index, image in enumerate(list_img):
-            pieces_img[
-                (max_height * int(index / modulo)) : (
-                    max_height * int(index / modulo) + image.shape[0]
-                ),
-                (max_width * (index % modulo)) : (
-                    max_width * (index % modulo) + image.shape[1]
-                ),
-            ] = image
-        cv2.imwrite(path, pieces_img)
-    if viewer:
-        cv2.imwrite(
-            os.path.join(os.environ["ZOLVER_TEMP_DIR"], "color_border.png"), out_color
-        )
-        viewer.addImage(
-            "Extracted colored border",
-            os.path.join(os.environ["ZOLVER_TEMP_DIR"], "color_border.png"),
-        )
-
-    return puzzle_pieces
-
 
 def export_contours_without_colormatching(
-    img, img_bw, contours, path, modulo, viewer=None, green=False, export_img=False
+    img, img_bw, contours, modulo, export_img=True
 ):
     puzzle_pieces = []
     list_img = []
 
-    from multiprocessing import Pool, cpu_count
-    import itertools
-
     with Pool(cpu_count()) as p:
         signatures = p.starmap(
-            my_find_corner_signature, zip(contours, itertools.repeat(green))
+            my_find_corner_signature, zip(contours, itertools.repeat(False))
         )
 
     for idx, cnt in enumerate(contours):
@@ -697,36 +500,33 @@ def export_contours_without_colormatching(
 
         puzzle_pieces.append(PuzzlePiece(edges, pixels))
 
-        if export_img:
-            mask_border = np.zeros_like(img_bw)
-            for i in range(4):
-                for p in edges_shape[i]:
-                    mask_border[p[1], p[0]] = 255
+        mask_border = np.zeros_like(img_bw)
+        for i in range(4):
+            for p in edges_shape[i]:
+                mask_border[p[1], p[0]] = 255
 
-            out = np.zeros_like(img_bw)
-            out[mask_border == 255] = img_bw[mask_border == 255]
+        out = np.zeros_like(img_bw)
+        out[mask_border == 255] = img_bw[mask_border == 255]
 
-            x, y, w, h = cv2.boundingRect(cnt)
-            out2 = out[y : y + h, x : x + w]
+        x, y, w, h = cv2.boundingRect(cnt)
+        out2 = out[y : y + h, x : x + w]
 
-            list_img.append(out2)
+        list_img.append(out2)
 
-    if export_img and list_img:
-        max_height = max(x.shape[0] for x in list_img)
-        max_width = max(x.shape[1] for x in list_img)
-        pieces_img = np.zeros(
-            [max_height * (int(len(list_img) / modulo) + 1), max_width * modulo],
-            dtype=np.uint8,
-        )
-        for index, image in enumerate(list_img):
-            pieces_img[
-                (max_height * int(index / modulo)) : (
-                    max_height * int(index / modulo) + image.shape[0]
-                ),
-                (max_width * (index % modulo)) : (
-                    max_width * (index % modulo) + image.shape[1]
-                ),
-            ] = image
-        cv2.imwrite(path, pieces_img)
+    max_height = max(x.shape[0] for x in list_img)
+    max_width = max(x.shape[1] for x in list_img)
+    pieces_img = np.zeros(
+        [max_height * (int(len(list_img) / modulo) + 1), max_width * modulo],
+        dtype=np.uint8,
+    )
+    for index, image in enumerate(list_img):
+        pieces_img[
+            (max_height * int(index / modulo)) : (
+                max_height * int(index / modulo) + image.shape[0]
+            ),
+            (max_width * (index % modulo)) : (
+                max_width * (index % modulo) + image.shape[1]
+            ),
+        ] = image
 
-    return puzzle_pieces
+    return puzzle_pieces, pieces_img

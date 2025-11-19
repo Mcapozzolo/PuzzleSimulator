@@ -121,12 +121,15 @@ class PuzzleSolverSimulator(tk.Canvas):
         #     self.add_log_message(f"Fehler beim Laden des Bildes: {e}")
         #     return
 
+
         try:
             # Call the extractor
             puzzle = Puzzle(file_path)
+            puzzle.extract_pieces()
             puzzle.solve_puzzle()
 
             self.debug_images_np = puzzle.get_debug_images()
+            # self.debug_images_np = puzzle.get_debug_images()
             # _pieces, _transforms, self.debug_images_np = (
             #     self.extractor.extract_pieces_and_transformations(
             #         image=None, debug=True
