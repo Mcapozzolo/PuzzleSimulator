@@ -2,7 +2,6 @@ import sys
 import cv2
 import numpy as np
 import matplotlib.pyplot as plt
-import os
 import logging as log
 
 from solver.Img.filters import export_contours_without_colormatching

@@ -85,10 +85,11 @@ class PuzzleSolverSimulator(tk.Canvas):
         self.content_frame.update_image(img)
 
         # Update title and log
-        step_desc = self.step_descriptions[self.current_step]
+        # step_desc = self.step_descriptions[self.current_step]
         total_steps = len(self.debug_images_np)
-        self.set_title(f"Schritt {self.current_step + 1}/{total_steps}: {step_desc}")
-        self.add_log_message(step_desc)
+        self.set_title(f"Schritt {self.current_step + 1}/{total_steps}")
+        # self.set_title(f"Schritt {self.current_step + 1}/{total_steps}: {step_desc}")
+        # self.add_log_message(step_desc)
 
         # If we reached the last step for the first time, log transformation results
         if self.current_step == total_steps - 1:
@@ -112,20 +113,21 @@ class PuzzleSolverSimulator(tk.Canvas):
         file_path = fd.askopenfilename(
             filetypes=[("Image Files", "*.png *.jpg *.jpeg")]
         )
-        # if not file_path:
-        #     return
 
-        # try:
-        #     image = cv2.imread(file_path)
-        # except Exception as e:
-        #     self.add_log_message(f"Fehler beim Laden des Bildes: {e}")
-        #     return
-
+        if not file_path:
+            self.add_log_message("Kein Bild ausgewählt.")
+            return
 
         try:
             # Call the extractor
             puzzle = Puzzle(file_path)
+            self.add_log_message(f"Bild geladen: {file_path}")
+            self.add_log_message("Bild wird verarbeitet.")
+
             puzzle.extract_pieces()
+            self.add_log_message("Puzzleteile wurden extrahiert")
+            self.add_log_message("Puzzle wird gelöst.")
+
             puzzle.solve_puzzle()
 
             self.debug_images_np = puzzle.get_debug_images()
@@ -137,7 +139,6 @@ class PuzzleSolverSimulator(tk.Canvas):
             # )
         except Exception as e:
             self.add_log_message(f"Fehler bei der Bildverarbeitung: {e}")
-            return
 
         if not self.debug_images_np:
             return
