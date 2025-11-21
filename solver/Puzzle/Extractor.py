@@ -89,11 +89,6 @@ class Extractor:
 
         self.debug_images_.append(show_contours(contours, self.img_bw))  # final contours
 
-        ### PREPROCESSING: the end
-
-        # In case with fail to find the pieces, we fill some holes and then try again
-        # while True: # TODO Add this at the end of the project, it is a fallback tactic
-
         log.info(">>> START contour/corner detection")
         puzzle_pieces, debug_img = export_contours_without_colormatching(
             self.img,
@@ -153,13 +148,6 @@ class Extractor:
             if min_size < area < max_size:
                 result[labels == i] = 255
                 valid_count += 1
-
-        self.debug_images_.append(gray)
-        self.debug_images_.append(binary)
-        self.debug_images_.append(filled)
-        self.debug_images_.append(separated)
-        self.debug_images_.append(cleaned)
-        self.debug_images_.append(result)
 
         print(f"Found {valid_count} valid puzzle pieces")
         return result

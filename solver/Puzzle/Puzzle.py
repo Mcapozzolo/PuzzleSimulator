@@ -79,7 +79,7 @@ class Puzzle:
 
         log.info("Number of border pieces: ", len(border_pieces) + 1)
 
-        self.export_pieces()
+        self.export_pieces_contours()
 
         log.info("Solve border...")
         start_piece = connected_pieces[0]
@@ -101,7 +101,7 @@ class Puzzle:
         self.solve(connected_pieces, non_border_pieces)
 
         self.translate_puzzle()
-        self.export_pieces()
+        self.export_pieces_contours()
 
         # Two sets of pieces: Already connected ones and pieces remaining to connect to the others
         # The first piece has an orientation like that:
@@ -204,7 +204,7 @@ class Puzzle:
                 left_pieces, self.diff, best_p, edge_connected=block_best_e
             )
 
-            self.export_pieces()
+            self.export_pieces_image()
 
         return connected_pieces
 
@@ -512,12 +512,11 @@ class Puzzle:
         for p in self.pieces_:
             p.translate(minX, minY)
 
-    def export_pieces(self):
+    def export_pieces_image(self):
         """
-        Export the contours and the colored image
+        Export the colored image of the pieces
 
         :param path_contour: Path used to export contours
-        :param path_colored: Path used to export the colored image
         :return: the best edge found in the bloc
         """
         minX, minY, maxX, maxY = self.get_bbox()
@@ -530,7 +529,6 @@ class Puzzle:
             return
 
         colored_img = np.zeros((h, w, 3), dtype=np.uint8)
-        border_img = np.zeros((h, w, 3), dtype=np.uint8)
 
         for piece in self.pieces_:
             # Reframe piece pixels to (0, 0)
@@ -545,6 +543,37 @@ class Puzzle:
             y = list(map(lambda e: int(e[1]), tmp))
             c = list(map(lambda e: e[2], tmp))
             colored_img[x, y] = c
+
+
+        self.debug_images_.append(colored_img)
+
+    def export_pieces_contours(self):
+        """
+        Export the contours and the colored image
+
+        :param path_contour: Path used to export contours
+        :return: the best edge found in the bloc
+        """
+        minX, minY, maxX, maxY = self.get_bbox()
+
+        # create uint8 images (H, W, 3)
+        h = maxX - minX
+        w = maxY - minY
+        if h <= 0 or w <= 0:
+            # nothing to export
+            return
+
+        border_img = np.zeros((h, w, 3), dtype=np.uint8)
+
+        for piece in self.pieces_:
+            # Reframe piece pixels to (0, 0)
+            tmp = [
+                (x - minX, y - minY, c)
+                for (x, y), c in piece.pixels.items()
+                if 0 <= x - minX < h and 0 <= y - minY < w
+            ]
+            if not tmp:
+                continue
 
             # Contours
             for e in piece.edges_:
@@ -564,9 +593,7 @@ class Puzzle:
                         border_img[x0, y0, 1] = rgb[1]
                         border_img[x0, y0, 2] = rgb[0]
 
-        # Append images to in-memory debug list in order: border image then colored image
         self.debug_images_.append(border_img)
-        self.debug_images_.append(colored_img)
 
     def compute_possible_size(self, nb_piece, nb_border) -> list[tuple]:
         """
