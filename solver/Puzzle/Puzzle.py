@@ -101,7 +101,6 @@ class Puzzle:
         self.solve(connected_pieces, non_border_pieces)
 
         self.translate_puzzle()
-        self.export_pieces_contours()
 
         # Two sets of pieces: Already connected ones and pieces remaining to connect to the others
         # The first piece has an orientation like that:
