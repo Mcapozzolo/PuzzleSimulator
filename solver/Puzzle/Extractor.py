@@ -90,13 +90,12 @@ class Extractor:
         self.debug_images_.append(show_contours(contours, self.img_bw))  # final contours
 
         log.info(">>> START contour/corner detection")
-        puzzle_pieces, debug_img = export_contours_without_colormatching(
+        puzzle_pieces, _ = export_contours_without_colormatching(
             self.img,
             self.img_bw,
             contours,
             5,
         )
-        self.debug_images_.append(debug_img)
 
         if puzzle_pieces is None:
             # Export contours error
