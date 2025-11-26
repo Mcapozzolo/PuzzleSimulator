@@ -35,13 +35,15 @@ class Puzzle:
     Class used to store all informations about the puzzle
     """
 
-    def __init__(self, path):
+    def __init__(self, path, log_fn=None):
         """Extract information of pieces in the img at `path` and start computation of the solution
         """
 
         self.image_path_ = path
         self.pieces_ = None
         self.debug_images_ = []
+        self.log_fn = log_fn or (lambda msg: None)
+        self.transform_report = {}
 
     def extract_pieces(self):
         log.info("Extracting pieces...")
@@ -50,6 +52,9 @@ class Puzzle:
         self.pieces_, debug_images = self.extract.extract()
 
         self.debug_images_.extend(debug_images)
+
+        for idx, piece in enumerate(self.pieces_, start=1):
+            piece.id = idx
 
         self.border_pieces = [p for p in self.pieces_ if p.is_border]
         self.non_border_pieces = [p for p in self.pieces_ if not p.is_border]
@@ -101,6 +106,26 @@ class Puzzle:
         self.solve(connected_pieces, non_border_pieces)
 
         self.translate_puzzle()
+        if hasattr(self, "log_fn") and self.log_fn is not None:
+            try:
+                # Wir nehmen das Start- bzw. Eckteil (connected_pieces[0])
+                base_piece = connected_pieces[0]
+                piece_name = getattr(base_piece, "id", getattr(base_piece, "name", "1"))
+
+                # Mittelpunkt der aktuellen Bounding Box (nach translate_puzzle)
+                minX, minY, maxX, maxY = base_piece.get_bbox()
+                cx = int((minX + maxX) / 2)
+                cy = int((minY + maxY) / 2)
+
+                # Keine Bewegung, keine Rotation
+                self.log_fn(
+                    f"TRANSFORM_REPORT {piece_name} "
+                    f"{cx} {cy} {cx} {cy} 0 0 0.0"
+                )
+            except Exception:
+                # zur Sicherheit nichts crashen lassen
+                pass
+            
         self.export_pieces_contours()
 
         # Two sets of pieces: Already connected ones and pieces remaining to connect to the others
@@ -190,7 +215,7 @@ class Puzzle:
                 self.edge_to_piece[best_e],
             )
 
-            stick_pieces(block_best_e, best_p, best_e, final_stick=True)
+            stick_pieces(block_best_e, best_p, best_e, final_stick=True, log_fn=self.log_fn)
 
             self.update_direction(block_best_e, best_p, best_e)
             self.connect_piece(

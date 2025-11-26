@@ -20,6 +20,19 @@ class PuzzleSolverSimulator(tk.Canvas):
         self.root = root
         self.extractor = extractor
         self.dimensions = (1200, 700)
+        # collected transformation/log messages coming from solver/mover
+        self.transformation_logs = []
+        # callback to hand to Puzzle/solver/mover
+        def _record_transformation(msg: str):
+            # Speziell: TRANSFORM_REPORT sammeln wir nur
+            if msg.startswith("TRANSFORM_REPORT"):
+                self.transformation_logs.append(msg)
+            else:
+                # normale Logs sofort anzeigen
+                self.add_log_message(msg)
+  
+
+        self.record_transformation = _record_transformation
 
         self.root.title("PuzzleSolver Simulator")
         self.root.geometry(f"{self.dimensions[0]}x{self.dimensions[1]}")
@@ -91,10 +104,6 @@ class PuzzleSolverSimulator(tk.Canvas):
         # self.set_title(f"Schritt {self.current_step + 1}/{total_steps}: {step_desc}")
         # self.add_log_message(step_desc)
 
-        # If we reached the last step for the first time, log transformation results
-        if self.current_step == total_steps - 1:
-            self.log_transformation_results()
-
         # Update button states
         can_go_prev = self.current_step > 0
         can_go_next = self.current_step < total_steps - 1
@@ -109,6 +118,8 @@ class PuzzleSolverSimulator(tk.Canvas):
         self.content_frame.clear_log()
         self.max_step = 0
         self.current_step = 0
+        # clear previous transformation logs
+        self.transformation_logs.clear()
 
         file_path = fd.askopenfilename(
             filetypes=[("Image Files", "*.png *.jpg *.jpeg")]
@@ -119,8 +130,22 @@ class PuzzleSolverSimulator(tk.Canvas):
             return
 
         try:
-            # Call the extractor
-            puzzle = Puzzle(file_path)
+            # Call the extractor and try to provide a logging callback
+            try:
+                puzzle = Puzzle(file_path, log_fn=self.record_transformation)
+            except TypeError:
+                puzzle = Puzzle(file_path)
+                # try attaching common attribute names if available
+                if hasattr(puzzle, "set_log_fn"):
+                    try:
+                        puzzle.set_log_fn(self.record_transformation)
+                    except Exception:
+                        pass
+                elif hasattr(puzzle, "log_fn"):
+                    try:
+                        puzzle.log_fn = self.record_transformation
+                    except Exception:
+                        pass
             self.add_log_message(f"Bild geladen: {file_path}")
             self.add_log_message("Bild wird verarbeitet.")
 
@@ -137,6 +162,8 @@ class PuzzleSolverSimulator(tk.Canvas):
             #         image=None, debug=True
             #     )
             # )
+            self.log_transformation_results()
+
         except Exception as e:
             self.add_log_message(f"Fehler bei der Bildverarbeitung: {e}")
 
@@ -162,6 +189,8 @@ class PuzzleSolverSimulator(tk.Canvas):
             self.update_display()
 
     def add_log_message(self, message):
+        if not message.strip():
+            return
         # If we are stepping back, do not add new log messages
         if self.max_step > self.current_step:
             return
@@ -172,15 +201,36 @@ class PuzzleSolverSimulator(tk.Canvas):
         self.top_frame.set_text(title)
 
     def log_transformation_results(self):
-        self.add_log_message("Puzzleteil 1:")
-        self.add_log_message(" - Bewegung: (1222, 1222) -> (12445, 33333)")
-        self.add_log_message(" - Rotation: 30°")
-        self.add_log_message("Puzzleteil 2:")
-        self.add_log_message(" - Bewegung: (222, 222) -> (4445, 5555)")
-        self.add_log_message(" - Rotation: 15°")
-        self.add_log_message("Puzzleteil 3:")
-        self.add_log_message(" - Bewegung: (555, 666) -> (7777, 8888)")
-        self.add_log_message(" - Rotation: 45°")
-        self.add_log_message("Puzzleteil 4:")
-        self.add_log_message(" - Bewegung: (999, 111) -> (1212, 1313)")
-        self.add_log_message(" - Rotation: 60°")
+        # Alle TRANSFORM_REPORT-Zeilen einsammeln
+        reports = {}
+
+        for msg in self.transformation_logs:
+            if msg.startswith("TRANSFORM_REPORT"):
+                parts = msg.split()
+                # Format:
+                # TRANSFORM_REPORT <id> <x_old> <y_old> <x_new> <y_new> <dx> <dy> <rot>
+                _, piece_id, x0, y0, x1, y1, dx, dy, rot = parts
+                reports[int(piece_id)] = {
+                    "x0": int(x0),
+                    "y0": int(y0),
+                    "x1": int(x1),
+                    "y1": int(y1),
+                    "dx": int(dx),
+                    "dy": int(dy),
+                    "rot": float(rot),
+                }
+
+        # Sortiert nach Puzzleteil-ID ausgeben
+        for pid in sorted(reports.keys()):
+            tf = reports[pid]
+            self.add_log_message(f"Puzzleteil {pid}:")
+            self.add_log_message(
+                f" - Bewegung: ({tf['x0']}, {tf['y0']}) -> ({tf['x1']}, {tf['y1']})"
+            )
+            self.add_log_message(
+                f" - Translation: dx={tf['dx']}, dy={tf['dy']}"
+            )
+            self.add_log_message(
+                f" - Rotation: {tf['rot']:.1f}°"
+            )
+            self.add_log_message("")  # Leerzeile für Übersicht
