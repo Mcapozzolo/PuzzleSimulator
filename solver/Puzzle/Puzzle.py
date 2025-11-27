@@ -125,8 +125,6 @@ class Puzzle:
             except Exception:
                 # zur Sicherheit nichts crashen lassen
                 pass
-            
-        self.export_pieces_contours()
 
         # Two sets of pieces: Already connected ones and pieces remaining to connect to the others
         # The first piece has an orientation like that:
