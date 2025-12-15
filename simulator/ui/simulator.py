@@ -10,9 +10,8 @@ from .frames.navigation_frame import NavigationFrame
 
 
 class PuzzleSolverSimulator(tk.Canvas):
-    def __init__(self, root, extractor):
+    def __init__(self, root):
         self.root = root
-        self.extractor = extractor
         self.dimensions = (1200, 700)
         self.transformation_logs = []
 
