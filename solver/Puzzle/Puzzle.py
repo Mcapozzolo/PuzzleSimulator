@@ -567,6 +567,24 @@ class Puzzle:
             c = list(map(lambda e: e[2], tmp))
             colored_img[x, y] = c
 
+            # Draw piece id near its centroid
+            try:
+                cx = int(sum(x) / len(x))
+                cy = int(sum(y) / len(y))
+                # OpenCV text uses (col, row) => (x_coord, y_coord) = (cy, cx)
+                cv2.putText(
+                    colored_img,
+                    str(getattr(piece, "id", "?")),
+                    (cy, cx),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    2,
+                    (255, 0, 0),
+                    2,
+                    cv2.LINE_AA,
+                )
+            except Exception:
+                pass
+
 
         self.debug_images_.append(colored_img)
 
@@ -615,6 +633,25 @@ class Puzzle:
                         border_img[x0, y0, 0] = rgb[2]
                         border_img[x0, y0, 1] = rgb[1]
                         border_img[x0, y0, 2] = rgb[0]
+
+            # Draw piece id near its centroid on the contour image as well
+            try:
+                xs = [int(t[0]) for t in tmp]
+                ys = [int(t[1]) for t in tmp]
+                cx = int(sum(xs) / len(xs))
+                cy = int(sum(ys) / len(ys))
+                cv2.putText(
+                    border_img,
+                    str(getattr(piece, "id", "?")),
+                    (cy, cx),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    2,
+                    (255, 0, 0),
+                    2,
+                    cv2.LINE_AA,
+                )
+            except Exception:
+                pass
 
         self.debug_images_.append(border_img)
 

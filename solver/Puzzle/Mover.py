@@ -43,7 +43,7 @@ def stick_pieces(bloc_e, p, e, final_stick=False, log_fn=None):
         # Rotationsursprung
         b_e0, b_e1 = bloc_e.shape[0][0], bloc_e.shape[0][1]
 
-        # ⭐ STARTKOORDINATEN (vor Verschiebung) – Mittelpunkt der alten BBox
+        # STARTKOORDINATEN (vor Verschiebung) – Mittelpunkt der alten BBox
         minX0, minY0, maxX0, maxY0 = p.get_bbox()
         cx_old = int((minX0 + maxX0) / 2)
         cy_old = int((minY0 + maxY0) / 2)
@@ -51,7 +51,7 @@ def stick_pieces(bloc_e, p, e, final_stick=False, log_fn=None):
         # Pixels um dx,dy verschieben
         p.translate(dx, dy)
 
-        # ⭐ ENDKOORDINATEN nach reiner Translation (ohne Rotation)
+        # ENDKOORDINATEN nach reiner Translation (ohne Rotation)
         # -> so wie in deinem Beispiel: Bewegung: (alt) -> (neu)
         cx_new = cx_old + dx
         cy_new = cy_old + dy
@@ -77,11 +77,11 @@ def stick_pieces(bloc_e, p, e, final_stick=False, log_fn=None):
                 ):
                     pixels[(px, py)] = img_p[qx - minX, qy - minY]
 
-        # ⚠️ WICHTIG: jetzt können pixels evtl. leer sein,
+        # WICHTIG: jetzt können pixels evtl. leer sein,
         # aber wir rufen KEIN get_bbox() mehr danach auf.
         p.pixels = pixels
 
-        # ⭐ EINZIGE saubere Protokollzeile:
+        # EINZIGE saubere Protokollzeile:
         # TRANSFORM_REPORT <id> <x_alt> <y_alt> <x_neu> <y_neu> <dx> <dy> <rotation>
         if log_fn:
             log_fn(
