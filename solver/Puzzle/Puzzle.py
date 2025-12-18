@@ -551,7 +551,8 @@ class Puzzle:
             # nothing to export
             return
 
-        colored_img = np.zeros((h, w, 3), dtype=np.uint8)
+        # start with a white background for clearer debug images
+        colored_img = np.full((h, w, 3), 255, dtype=np.uint8)
 
         for piece in self.pieces_:
             # Reframe piece pixels to (0, 0)
@@ -604,7 +605,8 @@ class Puzzle:
             # nothing to export
             return
 
-        border_img = np.zeros((h, w, 3), dtype=np.uint8)
+        # start with a white background for contours/debug overlay
+        border_img = np.full((h, w, 3), 255, dtype=np.uint8)
 
         for piece in self.pieces_:
             # Reframe piece pixels to (0, 0)
@@ -618,21 +620,29 @@ class Puzzle:
 
             # Contours
             for e in piece.edges_:
+                # paint a square of size contour_thickness around each contour pixel
+                th = 4
+                offset = th // 2
                 for yy, xx in e.shape:
                     y0, x0 = yy - minY, xx - minX
-                    if 0 <= y0 < w and 0 <= x0 < h:
-                        rgb = (0, 0, 0)
-                        if e.type == TypeEdge.HOLE:
-                            rgb = (102, 178, 255)
-                        if e.type == TypeEdge.HEAD:
-                            rgb = (255, 255, 102)
-                        if e.type == TypeEdge.UNDEFINED:
-                            rgb = (255, 0, 0)
-                        if e.connected:
-                            rgb = (0, 255, 0)
-                        border_img[x0, y0, 0] = rgb[2]
-                        border_img[x0, y0, 1] = rgb[1]
-                        border_img[x0, y0, 2] = rgb[0]
+                    # iterate a square neighborhood so thickness >1 paints more pixels
+                    for dx in range(-offset, -offset + th):
+                        for dy in range(-offset, -offset + th):
+                            xi = x0 + dx
+                            yj = y0 + dy
+                            if 0 <= yj < w and 0 <= xi < h:
+                                rgb = (0, 0, 0)
+                                if e.type == TypeEdge.HOLE:
+                                    rgb = (102, 178, 255)
+                                if e.type == TypeEdge.HEAD:
+                                    rgb = (255, 255, 102)
+                                if e.type == TypeEdge.UNDEFINED:
+                                    rgb = (255, 0, 0)
+                                if e.connected:
+                                    rgb = (0, 255, 0)
+                                border_img[xi, yj, 0] = rgb[2]
+                                border_img[xi, yj, 1] = rgb[1]
+                                border_img[xi, yj, 2] = rgb[0]
 
             # Draw piece id near its centroid on the contour image as well
             try:

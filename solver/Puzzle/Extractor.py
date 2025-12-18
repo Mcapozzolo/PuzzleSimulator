@@ -11,8 +11,10 @@ PREPROCESS_DEBUG_MODE = 0
 
 def show_contours(contours, img_ref) -> np.ndarray:
     """Helper used for matplotlib contours display"""
-    whiteImg = np.zeros(img_ref.shape)
-    cv2.drawContours(whiteImg, contours, -1, (255, 0, 0), 1, maxLevel=1)
+    # create a white RGB image to draw colored contours on
+    h, w = img_ref.shape[:2]
+    whiteImg = np.full((h, w, 3), 255, dtype=np.uint8)
+    cv2.drawContours(whiteImg, contours, -1, (255, 0, 0), 4, maxLevel=1)
 
     return whiteImg
 
