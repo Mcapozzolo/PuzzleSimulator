@@ -106,47 +106,83 @@ class Extractor:
         return puzzle_pieces, self.debug_images_
 
     def preprocess_black_pieces(self):
-        """Specialized preprocessing for black puzzle pieces on light background"""
+        """Specialized preprocessing for black puzzle pieces on light background,
+        robust against soft shadows."""
 
-        # 1. Grayscale & blur for noise reduction
-        gray = cv2.cvtColor(self.img, cv2.COLOR_BGR2GRAY) if len(self.img.shape) == 3 else self.img.copy()
-        blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+        img = self.img.copy()
+        h, w = img.shape[:2]
 
-        # 2. Simple thresholding - dark pieces are clearly distinct
-        _, binary = cv2.threshold(blurred, 100, 255, cv2.THRESH_BINARY_INV)
+        # 1) Gray + HSV
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY) if len(img.shape) == 3 else img.copy()
+        hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
 
-        # 3. Remove border regions and noise
-        h, w = binary.shape
-        border = 30
-        binary[0:border, :] = 0
-        binary[-border:, :] = 0
-        binary[:, 0:border] = 0
-        binary[:, -border:] = 0
+        # 2) Illumination correction / shadow normalization
+        # Large blur estimates the background lighting field.
+        bg = cv2.GaussianBlur(gray, (0, 0), sigmaX=35, sigmaY=35)
+        bg = np.clip(bg, 1, 255).astype(np.float32)
+        gray_f = gray.astype(np.float32)
 
-        # 4. Fill holes (screw holes in pieces)
-        kernel_close = np.ones((15,15), np.uint8)
-        filled = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel_close)
+        # Normalize local brightness: makes shadows flatter
+        norm = (gray_f / bg) * 180.0
+        norm = np.clip(norm, 0, 255).astype(np.uint8)
 
-        # 5. Separate touching pieces
-        kernel_erode = np.ones((3,3), np.uint8)
-        separated = cv2.erode(filled, kernel_erode, iterations=1)
+        # 3) Slight blur after normalization
+        norm_blur = cv2.GaussianBlur(norm, (5, 5), 0)
+        hsv_blur = cv2.GaussianBlur(hsv, (5, 5), 0)
 
-        # 6. Remove small artifacts and smooth edges
-        kernel_clean = np.ones((5,5), np.uint8)
-        cleaned = cv2.morphologyEx(separated, cv2.MORPH_OPEN, kernel_clean)
+        # 4) Threshold masks
+        # Gray-based on normalized image
+        _, mask_gray = cv2.threshold(norm_blur, 105, 255, cv2.THRESH_BINARY_INV)
 
-        # 7. Connected components filtering
+        # HSV-based black mask
+        h_chan, s_chan, v_chan = cv2.split(hsv_blur)
+        mask_v = cv2.inRange(v_chan, 0, 85)
+        mask_s = cv2.inRange(s_chan, 0, 170)
+
+        mask_hsv = cv2.bitwise_and(mask_v, mask_s)
+
+        # 5) Combine masks
+        # Use OR instead of strict AND so shadowed real pieces are not lost.
+        combined = cv2.bitwise_and(mask_gray, mask_hsv)
+
+        # 6) Remove borders
+        border = max(10, int(min(h, w) * 0.01))
+        combined[0:border, :] = 0
+        combined[-border:, :] = 0
+        combined[:, 0:border] = 0
+        combined[:, -border:] = 0
+
+        # 7) Morphology
+        kernel_close = np.ones((13, 13), np.uint8)
+        filled = cv2.morphologyEx(combined, cv2.MORPH_CLOSE, kernel_close)
+
+        kernel_open = np.ones((5, 5), np.uint8)
+        cleaned = cv2.morphologyEx(filled, cv2.MORPH_OPEN, kernel_open)
+
+        # 8) Connected components
         num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(cleaned)
 
-        # Size limits based on expected piece size
-        min_size = (h * w) * 0.02  # 2% of image area
-        max_size = (h * w) * 0.2   # 20% of image area
+        component_areas = []
+        for i in range(1, num_labels):
+            area = stats[i, cv2.CC_STAT_AREA]
+            if area > 400:
+                component_areas.append(area)
 
         result = np.zeros_like(cleaned)
+
+        if len(component_areas) == 0:
+            print("Found 0 valid puzzle pieces")
+            return result
+
+        median_area = float(np.median(component_areas))
+
+        min_size = median_area * 0.35
+        max_size = median_area * 2.50
+
         valid_count = 0
         for i in range(1, num_labels):
             area = stats[i, cv2.CC_STAT_AREA]
-            if min_size < area < max_size:
+            if min_size <= area <= max_size:
                 result[labels == i] = 255
                 valid_count += 1
 
