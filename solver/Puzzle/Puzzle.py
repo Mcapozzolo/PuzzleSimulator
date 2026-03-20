@@ -1,3 +1,4 @@
+
 import cv2
 import numpy as np
 import os
@@ -86,24 +87,20 @@ class Puzzle:
 
         self.export_pieces_contours()
 
-        log.info("Solve border...")
         start_piece = connected_pieces[0]
         start_piece.coord = (0, 0)
         self.corner_pos = [((0, 0), start_piece)]  # we start with a corner
-        for i in range(4):
+        for _ in range(4):
             if (
                 start_piece.edge_in_direction(Directions.S).connected
                 and start_piece.edge_in_direction(Directions.W).connected
             ):
                 break
             start_piece.rotate_edges(1)
-        self.extremum = (0, 0, 1, 1)
-        self.strategy = Strategy.BORDER
-        connected_pieces = self.solve(connected_pieces, border_pieces)
 
-        log.info("Solve middle...")
-        self.strategy = Strategy.FILL
-        self.solve(connected_pieces, non_border_pieces)
+        self.extremum = (0, 0, 1, 1)
+        all_left_pieces = border_pieces + non_border_pieces
+        connected_pieces = self.solve(connected_pieces, all_left_pieces)
 
         self.translate_puzzle()
         if hasattr(self, "log_fn") and self.log_fn is not None:
@@ -175,60 +172,249 @@ class Puzzle:
             int(max(rotatedY)),
         )
 
+    def _snapshot_state(self):
+        piece_states = {}
+        for piece in self.pieces_:
+            piece_states[id(piece)] = {
+                "coord": getattr(piece, "coord", None),
+                "pixels": dict(piece.pixels),
+                "edges": [
+                    {
+                        "direction": edge.direction,
+                        "connected": edge.connected,
+                        "shape": np.array(edge.shape, copy=True),
+                    }
+                    for edge in piece.edges_
+                ],
+            }
+
+        diff_copy = {}
+        for edge, edge_diff in self.diff.items():
+            diff_copy[edge] = dict(edge_diff)
+
+        return {
+            "connected_directions": list(self.connected_directions),
+            "extremum": tuple(self.extremum),
+            "possible_dim": list(self.possible_dim),
+            "corner_pos": list(getattr(self, "corner_pos", [])),
+            "diff": diff_copy,
+            "piece_states": piece_states,
+        }
+
+    def _restore_state(self, state):
+        self.connected_directions = list(state["connected_directions"])
+        self.extremum = tuple(state["extremum"])
+        self.possible_dim = list(state["possible_dim"])
+        self.corner_pos = list(state["corner_pos"])
+        self.diff = {edge: dict(edge_diff) for edge, edge_diff in state["diff"].items()}
+
+        for piece in self.pieces_:
+            piece_state = state["piece_states"][id(piece)]
+            piece.coord = piece_state["coord"]
+            piece.pixels = dict(piece_state["pixels"])
+
+            for edge, edge_state in zip(piece.edges_, piece_state["edges"]):
+                edge.direction = edge_state["direction"]
+                edge.connected = edge_state["connected"]
+                edge.shape = np.array(edge_state["shape"], copy=True)
+                edge.shape_backup = np.array(edge_state["shape"], copy=True)
+
+    def _determine_strategy(self, left_pieces):
+        if any(piece.is_border for piece in left_pieces):
+            return Strategy.BORDER
+        return Strategy.FILL
+
+    def is_complete_rectangle_solution(self, connected_pieces):
+        if len(connected_pieces) != len(self.pieces_):
+            self.log_fn(
+                f"BACKTRACK final-check failed: connected {len(connected_pieces)}/{len(self.pieces_)}"
+            )
+            return False
+
+        coords_to_piece = {coord: piece for coord, piece in self.connected_directions}
+        if len(coords_to_piece) != len(self.pieces_):
+            self.log_fn(
+                "BACKTRACK final-check failed: duplicate or missing coordinates in connected_directions"
+            )
+            return False
+
+        xs = [coord[0] for coord in coords_to_piece]
+        ys = [coord[1] for coord in coords_to_piece]
+        min_x, max_x = min(xs), max(xs)
+        min_y, max_y = min(ys), max(ys)
+
+        width = max_x - min_x + 1
+        height = max_y - min_y + 1
+
+        if width * height != len(coords_to_piece):
+            self.log_fn(
+                f"BACKTRACK final-check failed: bounding box {width}x{height} has gaps for {len(coords_to_piece)} pieces"
+            )
+            return False
+
+        expected_dim = {(width - 1, height - 1), (height - 1, width - 1)}
+        if self.possible_dim and not any(dim in expected_dim for dim in self.possible_dim):
+            self.log_fn(
+                f"BACKTRACK final-check failed: bounding box {width}x{height} not compatible with possible dimensions {display_dim(self.possible_dim)}"
+            )
+            return False
+
+        corners = {
+            (min_x, min_y),
+            (min_x, max_y),
+            (max_x, min_y),
+            (max_x, max_y),
+        }
+
+        for x in range(min_x, max_x + 1):
+            for y in range(min_y, max_y + 1):
+                if (x, y) not in coords_to_piece:
+                    self.log_fn(
+                        f"BACKTRACK final-check failed: missing piece at grid position {(x, y)}"
+                    )
+                    return False
+
+        for coord, piece in coords_to_piece.items():
+            is_corner = coord in corners
+            is_border = (
+                coord[0] == min_x
+                or coord[0] == max_x
+                or coord[1] == min_y
+                or coord[1] == max_y
+            )
+
+            if piece.type == TypePiece.ANGLE and not is_corner:
+                self.log_fn(
+                    f"BACKTRACK final-check failed: corner piece {getattr(piece, 'id', '?')} is not on a corner at {coord}"
+                )
+                return False
+            if piece.type == TypePiece.BORDER and (not is_border or is_corner):
+                self.log_fn(
+                    f"BACKTRACK final-check failed: border piece {getattr(piece, 'id', '?')} is at invalid border position {coord}"
+                )
+                return False
+            if piece.type == TypePiece.CENTER and is_border:
+                self.log_fn(
+                    f"BACKTRACK final-check failed: center piece {getattr(piece, 'id', '?')} ended up on border at {coord}"
+                )
+                return False
+
+        self.log_fn(
+            f"BACKTRACK final-check success: solved rectangle {width}x{height} with {len(coords_to_piece)} pieces"
+        )
+        return True
+
+    def _solve_backtracking(self, connected_pieces, left_pieces, max_candidates=3, depth=0):
+        indent = "  " * depth
+        if len(left_pieces) == 0:
+            self.log_fn(f"{indent}BACKTRACK reached leaf -> final rectangle check")
+            return self.is_complete_rectangle_solution(connected_pieces)
+
+        self.strategy = self._determine_strategy(left_pieces)
+        self.diff = self.add_to_diffs(left_pieces)
+
+        log.info(
+            "<--- New match ---> pieces left: ",
+            len(left_pieces),
+            "strategy:",
+            self.strategy,
+            "extremum:",
+            self.extremum,
+            "puzzle dimension:",
+            display_dim(self.possible_dim),
+        )
+
+        candidates = self.best_diffs(
+            self.diff,
+            self.connected_directions,
+            left_pieces,
+            limit=max_candidates,
+        )
+
+        self.log_fn(
+            f"{indent}BACKTRACK depth={depth} left={len(left_pieces)} candidates={len(candidates)} strategy={self.strategy}"
+        )
+
+        for idx, (block_best_e, best_e, _score) in enumerate(candidates, start=1):
+            block_best_p = self.edge_to_piece[block_best_e]
+            best_p = self.edge_to_piece[best_e]
+
+            self.log_fn(
+                f"{indent}TRY {idx}/{len(candidates)}: place piece {getattr(best_p, 'id', '?')} on piece {getattr(block_best_p, 'id', '?')} via {block_best_e.direction}->{best_e.direction} score={_score:.4f}"
+            )
+
+            state = self._snapshot_state()
+            connected_backup = connected_pieces.copy()
+            left_backup = left_pieces.copy()
+
+            try:
+                stick_pieces(
+                    block_best_e,
+                    best_p,
+                    best_e,
+                    final_stick=True,
+                    log_fn=self.log_fn,
+                )
+
+                self.update_direction(block_best_e, best_p, best_e)
+                self.connect_piece(
+                    self.connected_directions,
+                    block_best_p,
+                    block_best_e.direction,
+                    best_p,
+                )
+
+                connected_pieces.append(best_p)
+                left_pieces.remove(best_p)
+
+                self.diff = self.compute_diffs(
+                    left_pieces,
+                    self.diff,
+                    best_p,
+                    edge_connected=block_best_e,
+                )
+
+                if self._solve_backtracking(
+                    connected_pieces,
+                    left_pieces,
+                    max_candidates=max_candidates,
+                    depth=depth + 1,
+                ):
+                    self.log_fn(
+                        f"{indent}ACCEPT piece {getattr(best_p, 'id', '?')} at depth {depth}"
+                    )
+                    return True
+            except Exception as exc:
+                self.log_fn(
+                    f"{indent}TRY failed with exception for piece {getattr(best_p, 'id', '?')}: {exc}"
+                )
+
+            self.log_fn(
+                f"{indent}BACKTRACK remove piece {getattr(best_p, 'id', '?')} at depth {depth}"
+            )
+            self._restore_state(state)
+            connected_pieces[:] = connected_backup
+            left_pieces[:] = left_backup
+
+        return False
+
     def solve(self, connected_pieces, left_pieces):
         """
-        Solve the puzzle by finding the optimal piece in left_pieces matching the edges
-        available in connected_pieces
-
-        :param connected_pieces: pieces already connected to the puzzle
-        :param left_pieces: remaining pieces to place in the puzzle
-        :param border: Boolean to determine if the strategy is border
-        :return: List of connected pieces
+        Solve the puzzle by recursively trying candidates and validating the
+        final arrangement as a complete rectangle.
         """
 
         if len(self.connected_directions) == 0:
-            self.connected_directions = [
-                ((0, 0), connected_pieces[0])
-            ]  # ((x, y), p), x & y relative to the first piece, init with 1st piece
-            self.diff = self.compute_diffs(
-                left_pieces, self.diff, connected_pieces[0]
-            )  # edge on the border of the block -> edge on a left piece -> diff between edges
+            self.connected_directions = [((0, 0), connected_pieces[0])]
+            self.diff = self.compute_diffs(left_pieces, {}, connected_pieces[0])
         else:
             self.diff = self.add_to_diffs(left_pieces)
 
-        while len(left_pieces) > 0:
-            log.info(
-                "<--- New match ---> pieces left: ",
-                len(left_pieces),
-                "extremum:",
-                self.extremum,
-                "puzzle dimension:",
-                display_dim(self.possible_dim),
-            )
-            block_best_e, best_e = self.best_diff(
-                self.diff, self.connected_directions, left_pieces
-            )
-            block_best_p, best_p = (
-                self.edge_to_piece[block_best_e],
-                self.edge_to_piece[best_e],
-            )
+        solved = self._solve_backtracking(connected_pieces, left_pieces, max_candidates=3, depth=0)
+        if not solved:
+            raise RuntimeError("Puzzle could not be solved with backtracking.")
 
-            stick_pieces(block_best_e, best_p, best_e, final_stick=True, log_fn=self.log_fn)
-
-            self.update_direction(block_best_e, best_p, best_e)
-            self.connect_piece(
-                self.connected_directions, block_best_p, block_best_e.direction, best_p
-            )
-
-            connected_pieces.append(best_p)
-            del left_pieces[left_pieces.index(best_p)]
-
-            self.diff = self.compute_diffs(
-                left_pieces, self.diff, best_p, edge_connected=block_best_e
-            )
-
-            self.export_pieces_image()
-
+        self.export_pieces_image()
         return connected_pieces
 
     def compute_diffs(self, left_pieces, diff, new_connected, edge_connected=None):
@@ -284,37 +470,44 @@ class Puzzle:
             "Fail to solve the puzzle with", self.strategy, "falling back to", strat
         )
         old_strat = self.strategy
-        self.strategy = Strategy.NAIVE
-        best_bloc_e, best_e = self.best_diff(diff, connected_direction, left_piece)
+        self.strategy = strat
+        candidates = self.best_diffs(diff, connected_direction, left_piece, limit=1)
         self.strategy = old_strat
-        return best_bloc_e, best_e
+        if not candidates:
+            return None, None
+        return candidates[0][0], candidates[0][1]
 
-    def best_diff(self, diff, connected_direction, left_piece):
+    def best_diffs(self, diff, connected_direction, left_piece, limit=3):
         """
-        Find the best matching edge for a piece edge
-
-        :param diff: pre computed diff between edges to speed up the process
-        :param connected_direction: Direction of the edge to connect
-        :param left_piece: Piece to connect
-        :return: the best edge found in the bloc
+        Find the best matching edges for the current frontier.
+        Returns several candidates so that the solver can backtrack.
         """
 
-        best_bloc_e, best_e, _best_p, min_diff = None, None, None, float("inf")
+        candidates = []
         minX, minY, maxX, maxY = self.extremum
+
+        def add_candidate(block_edge, edge, score):
+            if block_edge is None or edge is None:
+                return
+            if score == float("inf"):
+                return
+            candidates.append((block_edge, edge, score))
+
+        candidate_pieces = left_piece
+        if self.strategy == Strategy.BORDER:
+            border_candidates = [piece for piece in left_piece if piece.is_border]
+            if border_candidates:
+                candidate_pieces = border_candidates
 
         if self.strategy == Strategy.FILL:
             best_coords = []
-
-            # this is ugly
-            for i in range(4, -1, -1):  # 4 to 0
+            for i in range(4, -1, -1):
                 best_coord = []
                 for x in range(minX, maxX + 1):
                     for y in range(minY, maxY + 1):
                         neighbor = list(
                             filter(
-                                lambda e: is_neighbor(
-                                    (x, y), e[0], connected_direction
-                                ),
+                                lambda e: is_neighbor((x, y), e[0], connected_direction),
                                 connected_direction,
                             )
                         )
@@ -324,19 +517,19 @@ class Puzzle:
 
             for best_coord in best_coords:
                 for c, neighbor in best_coord:
-                    for p in left_piece:
-                        for rotation in range(4):
+                    for piece in candidate_pieces:
+                        for _ in range(4):
+                            piece.rotate_edges(1)
                             diff_score = 0
-                            p.rotate_edges(1)
-                            last_test = None, None
+                            last_test = (None, None)
+
                             for block_c, block_p in neighbor:
                                 direction_exposed = Directions(sub_tuple(c, block_c))
-                                edge_exposed = block_p.edge_in_direction(
-                                    direction_exposed
-                                )
-                                edge = p.edge_in_direction(
+                                edge_exposed = block_p.edge_in_direction(direction_exposed)
+                                edge = piece.edge_in_direction(
                                     get_opposite_direction(direction_exposed)
                                 )
+
                                 if (
                                     edge_exposed.connected
                                     or edge.connected
@@ -344,24 +537,19 @@ class Puzzle:
                                 ):
                                     diff_score = float("inf")
                                     break
-                                else:
-                                    diff_score += diff[edge_exposed][edge]
-                                    last_test = edge_exposed, edge
-                            if diff_score < min_diff:
-                                best_bloc_e, best_e, min_diff = (
-                                    last_test[0],
-                                    last_test[1],
-                                    diff_score,
-                                )
-                if best_e is not None:
+
+                                score = diff.get(edge_exposed, {}).get(edge, float("inf"))
+                                if score == float("inf"):
+                                    diff_score = float("inf")
+                                    break
+
+                                diff_score += score
+                                last_test = (edge_exposed, edge)
+
+                            add_candidate(last_test[0], last_test[1], diff_score)
+
+                if candidates:
                     break
-                elif len(best_coord):
-                    log.info("Fall back to a worst", self.strategy)
-            if best_e is None:
-                best_bloc_e, best_e = self.fallback(
-                    diff, connected_direction, left_piece
-                )
-            return best_bloc_e, best_e
 
         elif self.strategy == Strategy.BORDER:
             best_coord = []
@@ -374,62 +562,77 @@ class Puzzle:
                         )
                     )
                     if len(neighbor) == 1 or (
-                        len(neighbor) == 2 and len(left_piece) == 1
+                        len(neighbor) == 2 and len(candidate_pieces) == 1
                     ):
                         best_coord.append(((x, y), neighbor[0]))
 
             for c, neighbor in best_coord:
-                for p in left_piece:
-                    for rotation in range(4):
+                for piece in candidate_pieces:
+                    for _ in range(4):
+                        piece.rotate_edges(1)
                         diff_score = 0
-                        p.rotate_edges(1)
                         block_c, block_p = neighbor
 
                         direction_exposed = Directions(sub_tuple(c, block_c))
                         edge_exposed = block_p.edge_in_direction(direction_exposed)
-                        edge = p.edge_in_direction(
+                        edge = piece.edge_in_direction(
                             get_opposite_direction(direction_exposed)
                         )
 
-                        if p.type == TypePiece.ANGLE and (
+                        if piece.type == TypePiece.ANGLE and (
                             not corner_puzzle_alignment(c, self.corner_pos)
                             or not self.corner_place_fit_size(c)
                         ):
                             diff_score = float("inf")
-                        if p.type == TypePiece.BORDER and self.is_edge_at_corner_place(
-                            c
-                        ):
+
+                        if piece.type == TypePiece.BORDER and self.is_edge_at_corner_place(c):
                             diff_score = float("inf")
+
                         if (
                             diff_score != 0
                             or edge_exposed.connected
                             or edge.connected
                             or not edge.is_compatible(edge_exposed)
-                            or not p.is_border_aligned(block_p)
+                            or not piece.is_border_aligned(block_p)
                         ):
                             diff_score = float("inf")
                         else:
-                            diff_score = diff[edge_exposed][edge]
+                            diff_score = diff.get(edge_exposed, {}).get(edge, float("inf"))
 
-                        if diff_score < min_diff:
-                            best_bloc_e, best_e, min_diff = (
-                                edge_exposed,
-                                edge,
-                                diff_score,
-                            )
-            if best_e is None:
-                best_bloc_e, best_e = self.fallback(
-                    diff, connected_direction, left_piece, strat=Strategy.FILL
+                        add_candidate(edge_exposed, edge, diff_score)
+
+            if not candidates:
+                old_strat = self.strategy
+                self.strategy = Strategy.FILL
+                fallback_candidates = self.best_diffs(
+                    diff, connected_direction, left_piece, limit=limit
                 )
-            return best_bloc_e, best_e
+                self.strategy = old_strat
+                return fallback_candidates
 
         elif self.strategy == Strategy.NAIVE:
             for block_e, block_e_diff in diff.items():
-                for e, diff_score in block_e_diff.items():
-                    if diff_score < min_diff:
-                        best_bloc_e, best_e, min_diff = block_e, e, diff_score
-            return best_bloc_e, best_e
-        return None, None
+                for edge, diff_score in block_e_diff.items():
+                    add_candidate(block_e, edge, diff_score)
+
+        unique = {}
+        for block_e, edge, score in candidates:
+            key = (id(block_e), id(edge))
+            if key not in unique or score < unique[key][2]:
+                unique[key] = (block_e, edge, score)
+
+        ordered = sorted(unique.values(), key=lambda item: item[2])
+
+        if ordered:
+            return ordered[:limit]
+
+        return []
+
+    def best_diff(self, diff, connected_direction, left_piece):
+        candidates = self.best_diffs(diff, connected_direction, left_piece, limit=1)
+        if not candidates:
+            return None, None
+        return candidates[0][0], candidates[0][1]
 
     def add_to_diffs(self, left_pieces):
         """build the list of edge to test"""
@@ -771,3 +974,5 @@ class Puzzle:
     def get_debug_images(self) -> list:
         """Return the in-memory list of debug images (numpy arrays) in order."""
         return self.debug_images_
+
+
