@@ -141,6 +141,13 @@ def send_to_robot(robot_commands):
     from solver.Robot.robot_interface import RobotInterface
     print("[BOOT] run_robot_solver.py wurde gestartet", flush=True)
     robot = RobotInterface(port=ROBOT_PORT, send_units="cm")
+    print("[ROBOT] HOMEING...")
+    robot.home()
+
+    print("[ROBOT] Waiting for HOME to finish...")
+    robot.wait_until_idle()
+
+    print("[ROBOT] HOME finished.")
 
     try:
         print("[ROBOT] READY")
