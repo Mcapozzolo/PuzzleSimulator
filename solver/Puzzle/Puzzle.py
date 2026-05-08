@@ -54,6 +54,12 @@ class Puzzle:
 
         self.debug_images_.extend(debug_images)
 
+        # additional colored edge-filter view right after extraction
+        try:
+            self.append_debug_edge_view_only()
+        except Exception:
+            pass
+
         for idx, piece in enumerate(self.pieces_, start=1):
             piece.id = idx
 
@@ -71,7 +77,6 @@ class Puzzle:
     def solve_puzzle(self):
         log.info("Solving puzzle...")
 
-        # Separate border pieces from the other
         connected_pieces = []
         border_pieces = self.border_pieces.copy()
         non_border_pieces = self.non_border_pieces.copy()
@@ -85,11 +90,10 @@ class Puzzle:
 
         log.info("Number of border pieces: ", len(border_pieces) + 1)
 
-        self.export_pieces_contours()
-
         start_piece = connected_pieces[0]
         start_piece.coord = (0, 0)
-        self.corner_pos = [((0, 0), start_piece)]  # we start with a corner
+        self.corner_pos = [((0, 0), start_piece)]
+
         for _ in range(4):
             if (
                 start_piece.edge_in_direction(Directions.S).connected
@@ -100,27 +104,31 @@ class Puzzle:
 
         self.extremum = (0, 0, 1, 1)
         all_left_pieces = border_pieces + non_border_pieces
+
+        # initial debug views before solving
+        self.append_debug_step_views()
+
         connected_pieces = self.solve(connected_pieces, all_left_pieces)
 
         self.translate_puzzle()
+
+        # final full views
+        self.append_debug_step_views()
+
         if hasattr(self, "log_fn") and self.log_fn is not None:
             try:
-                # Wir nehmen das Start- bzw. Eckteil (connected_pieces[0])
                 base_piece = connected_pieces[0]
                 piece_name = getattr(base_piece, "id", getattr(base_piece, "name", "1"))
 
-                # Mittelpunkt der aktuellen Bounding Box (nach translate_puzzle)
                 minX, minY, maxX, maxY = base_piece.get_bbox()
                 cx = int((minX + maxX) / 2)
                 cy = int((minY + maxY) / 2)
 
-                # Keine Bewegung, keine Rotation
                 self.log_fn(
                     f"TRANSFORM_REPORT {piece_name} "
                     f"{cx} {cy} {cx} {cy} 0 0 0.0"
                 )
             except Exception:
-                # zur Sicherheit nichts crashen lassen
                 pass
 
         # Two sets of pieces: Already connected ones and pieces remaining to connect to the others
@@ -306,6 +314,7 @@ class Puzzle:
 
     def _solve_backtracking(self, connected_pieces, left_pieces, max_candidates=3, depth=0):
         indent = "  " * depth
+
         if len(left_pieces) == 0:
             self.log_fn(f"{indent}BACKTRACK reached leaf -> final rectangle check")
             return self.is_complete_rectangle_solution(connected_pieces)
@@ -383,7 +392,11 @@ class Puzzle:
                     self.log_fn(
                         f"{indent}ACCEPT piece {getattr(best_p, 'id', '?')} at depth {depth}"
                     )
+
+                    # only store views for accepted path
+                    self.append_debug_step_views()
                     return True
+
             except Exception as exc:
                 self.log_fn(
                     f"{indent}TRY failed with exception for piece {getattr(best_p, 'id', '?')}: {exc}"
@@ -410,7 +423,7 @@ class Puzzle:
         else:
             self.diff = self.add_to_diffs(left_pieces)
 
-        solved = self._solve_backtracking(connected_pieces, left_pieces, max_candidates=3, depth=0)
+        solved = self._solve_backtracking(connected_pieces, left_pieces, max_candidates=20, depth=0)
         if not solved:
             raise RuntimeError("Puzzle could not be solved with backtracking.")
 
@@ -975,4 +988,122 @@ class Puzzle:
         """Return the in-memory list of debug images (numpy arrays) in order."""
         return self.debug_images_
 
+    def render_puzzle_view(self, show_fill=True, show_edges=False, white_bg=True):
+        """
+        Render the current puzzle state as an RGB image.
 
+        show_fill:
+            True  -> draw actual piece pixels
+            False -> only background + edge overlay
+
+        show_edges:
+            True  -> draw colored edge overlay
+            False -> no edge overlay
+
+        white_bg:
+            True  -> white background
+            False -> black background
+        """
+        minX, minY, maxX, maxY = self.get_bbox()
+
+        h = maxX - minX + 1
+        w = maxY - minY + 1
+        if h <= 0 or w <= 0:
+            return np.zeros((10, 10, 3), dtype=np.uint8)
+
+        if white_bg:
+            canvas = np.full((h, w, 3), 255, dtype=np.uint8)
+        else:
+            canvas = np.zeros((h, w, 3), dtype=np.uint8)
+
+        # 1) piece fill
+        if show_fill:
+            for piece in self.pieces_:
+                tmp = [
+                    (x - minX, y - minY, c)
+                    for (x, y), c in piece.pixels.items()
+                    if 0 <= x - minX < h and 0 <= y - minY < w
+                ]
+                if not tmp:
+                    continue
+
+                xs = [int(t[0]) for t in tmp]
+                ys = [int(t[1]) for t in tmp]
+                cols = [t[2] for t in tmp]
+                canvas[xs, ys] = cols
+
+        # 2) edge overlay
+        if show_edges:
+            contour_thickness = 4
+
+            for piece in self.pieces_:
+                for e in piece.edges_:
+                    if e.type == TypeEdge.HOLE:
+                        rgb = (102, 178, 255)   # cyan-ish
+                    elif e.type == TypeEdge.HEAD:
+                        rgb = (255, 200, 102)   # orange-ish
+                    elif e.type == TypeEdge.UNDEFINED:
+                        rgb = (255, 0, 0)       # red
+                    elif e.connected:
+                        rgb = (0, 255, 0)       # green
+                    else:
+                        rgb = (0, 255, 0)       # border or default green
+
+                    offset = contour_thickness // 2
+                    for yy, xx in e.shape:
+                        y0 = int(yy - minY)
+                        x0 = int(xx - minX)
+
+                        for dx in range(-offset, -offset + contour_thickness):
+                            for dy in range(-offset, -offset + contour_thickness):
+                                xi = x0 + dx
+                                yj = y0 + dy
+                                if 0 <= xi < h and 0 <= yj < w:
+                                    canvas[xi, yj, 0] = rgb[2]
+                                    canvas[xi, yj, 1] = rgb[1]
+                                    canvas[xi, yj, 2] = rgb[0]
+
+        # 3) piece ids
+        for piece in self.pieces_:
+            try:
+                if not piece.pixels:
+                    continue
+                xs = [p[0] - minX for p in piece.pixels.keys()]
+                ys = [p[1] - minY for p in piece.pixels.keys()]
+                cx = int(sum(xs) / len(xs))
+                cy = int(sum(ys) / len(ys))
+
+                cv2.putText(
+                    canvas,
+                    str(getattr(piece, "id", "?")),
+                    (cy, cx),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    2,
+                    (255, 0, 0),
+                    2,
+                    cv2.LINE_AA,
+                )
+            except Exception:
+                pass
+
+        return canvas
+
+    def append_debug_step_views(self):
+        """
+        Append both:
+        - normal full-color/current piece view
+        - colored edge overlay view
+        """
+        normal_img = self.render_puzzle_view(show_fill=True, show_edges=False, white_bg=True)
+        edge_img = self.render_puzzle_view(show_fill=True, show_edges=True, white_bg=True)
+
+        self.debug_images_.append(normal_img)
+        self.debug_images_.append(edge_img)
+    
+    def append_debug_edge_view_only(self):
+        """
+        Append only the colored edge-filter view.
+        Useful after extraction / contour detection.
+        """
+        edge_img = self.render_puzzle_view(show_fill=False, show_edges=True, white_bg=True)
+        self.debug_images_.append(edge_img)

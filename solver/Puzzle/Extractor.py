@@ -107,59 +107,56 @@ class Extractor:
 
     def preprocess_black_pieces(self):
         """Specialized preprocessing for black puzzle pieces on light background,
-        robust against soft shadows."""
+        robust against shadows and small holes inside the pieces."""
 
         img = self.img.copy()
         h, w = img.shape[:2]
 
-        # 1) Gray + HSV
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY) if len(img.shape) == 3 else img.copy()
         hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
 
-        # 2) Illumination correction / shadow normalization
-        # Large blur estimates the background lighting field.
         bg = cv2.GaussianBlur(gray, (0, 0), sigmaX=35, sigmaY=35)
         bg = np.clip(bg, 1, 255).astype(np.float32)
         gray_f = gray.astype(np.float32)
 
-        # Normalize local brightness: makes shadows flatter
         norm = (gray_f / bg) * 180.0
         norm = np.clip(norm, 0, 255).astype(np.uint8)
 
-        # 3) Slight blur after normalization
         norm_blur = cv2.GaussianBlur(norm, (5, 5), 0)
         hsv_blur = cv2.GaussianBlur(hsv, (5, 5), 0)
 
-        # 4) Threshold masks
-        # Gray-based on normalized image
-        _, mask_gray = cv2.threshold(norm_blur, 105, 255, cv2.THRESH_BINARY_INV)
+        _, mask_gray = cv2.threshold(norm_blur, 115, 255, cv2.THRESH_BINARY_INV)
 
-        # HSV-based black mask
-        h_chan, s_chan, v_chan = cv2.split(hsv_blur)
-        mask_v = cv2.inRange(v_chan, 0, 85)
-        mask_s = cv2.inRange(s_chan, 0, 170)
+        _, _, v_chan = cv2.split(hsv_blur)
+        mask_hsv = cv2.inRange(v_chan, 0, 105)
 
-        mask_hsv = cv2.bitwise_and(mask_v, mask_s)
+        combined = cv2.bitwise_or(mask_gray, mask_hsv)
 
-        # 5) Combine masks
-        # Use OR instead of strict AND so shadowed real pieces are not lost.
-        combined = cv2.bitwise_and(mask_gray, mask_hsv)
-
-        # 6) Remove borders
         border = max(10, int(min(h, w) * 0.01))
         combined[0:border, :] = 0
         combined[-border:, :] = 0
         combined[:, 0:border] = 0
         combined[:, -border:] = 0
 
-        # 7) Morphology
-        kernel_close = np.ones((13, 13), np.uint8)
-        filled = cv2.morphologyEx(combined, cv2.MORPH_CLOSE, kernel_close)
+        kernel_close = np.ones((9, 9), np.uint8)
+        cleaned = cv2.morphologyEx(combined, cv2.MORPH_CLOSE, kernel_close)
 
-        kernel_open = np.ones((5, 5), np.uint8)
-        cleaned = cv2.morphologyEx(filled, cv2.MORPH_OPEN, kernel_open)
+        kernel_open = np.ones((3, 3), np.uint8)
+        cleaned = cv2.morphologyEx(cleaned, cv2.MORPH_OPEN, kernel_open)
 
-        # 8) Connected components
+        # Wichtig: Innenlöcher füllen
+        flood = cleaned.copy()
+        flood_mask = np.zeros((h + 2, w + 2), np.uint8)
+
+        cv2.floodFill(flood, flood_mask, (0, 0), 255)
+
+        holes = cv2.bitwise_not(flood)
+        cleaned = cv2.bitwise_or(cleaned, holes)
+
+        # Kleine Kanten stabilisieren
+        kernel_final = np.ones((5, 5), np.uint8)
+        cleaned = cv2.morphologyEx(cleaned, cv2.MORPH_CLOSE, kernel_final)
+
         num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(cleaned)
 
         component_areas = []
