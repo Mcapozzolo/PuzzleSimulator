@@ -494,10 +494,24 @@ class Puzzle:
         """
         Find the best matching edges for the current frontier.
         Returns several candidates so that the solver can backtrack.
+
+        Debug-Erweiterung:
+        Wenn im BORDER-Modus keine Kandidaten entstehen, wird geloggt,
+        WARUM Kandidaten verworfen wurden. Das ist wichtig für die neuen
+        offiziellen Puzzleteile mit runden Verbindungen.
         """
 
         candidates = []
         minX, minY, maxX, maxY = self.extremum
+
+        reject_stats = {
+            "tested": 0,
+            "piece_type_position": 0,
+            "connected": 0,
+            "incompatible": 0,
+            "missing_diff": 0,
+            "accepted": 0,
+        }
 
         def add_candidate(block_edge, edge, score):
             if block_edge is None or edge is None:
@@ -543,11 +557,11 @@ class Puzzle:
                                     get_opposite_direction(direction_exposed)
                                 )
 
-                                if (
-                                    edge_exposed.connected
-                                    or edge.connected
-                                    or not edge.is_compatible(edge_exposed)
-                                ):
+                                if edge_exposed.connected or edge.connected:
+                                    diff_score = float("inf")
+                                    break
+
+                                if not edge.is_compatible(edge_exposed):
                                     diff_score = float("inf")
                                     break
 
@@ -583,7 +597,8 @@ class Puzzle:
                 for piece in candidate_pieces:
                     for _ in range(4):
                         piece.rotate_edges(1)
-                        diff_score = 0
+                        reject_stats["tested"] += 1
+
                         block_c, block_p = neighbor
 
                         direction_exposed = Directions(sub_tuple(c, block_c))
@@ -596,25 +611,46 @@ class Puzzle:
                             not corner_puzzle_alignment(c, self.corner_pos)
                             or not self.corner_place_fit_size(c)
                         ):
-                            diff_score = float("inf")
+                            reject_stats["piece_type_position"] += 1
+                            continue
 
                         if piece.type == TypePiece.BORDER and self.is_edge_at_corner_place(c):
-                            diff_score = float("inf")
+                            reject_stats["piece_type_position"] += 1
+                            continue
 
-                        if (
-                            diff_score != 0
-                            or edge_exposed.connected
-                            or edge.connected
-                            or not edge.is_compatible(edge_exposed)
-                            or not piece.is_border_aligned(block_p)
-                        ):
-                            diff_score = float("inf")
-                        else:
-                            diff_score = diff.get(edge_exposed, {}).get(edge, float("inf"))
+                        if edge_exposed.connected or edge.connected:
+                            reject_stats["connected"] += 1
+                            continue
 
+                        if not edge.is_compatible(edge_exposed):
+                            reject_stats["incompatible"] += 1
+                            continue
+
+                        diff_score = diff.get(edge_exposed, {}).get(edge, float("inf"))
+
+                        if diff_score == float("inf"):
+                            try:
+                                diff_score = edge_exposed.diff(edge)
+                            except Exception:
+                                diff_score = float("inf")
+                                
+                        if diff_score == float("inf"):
+                            reject_stats["missing_diff"] += 1
+                            continue
+
+                        reject_stats["accepted"] += 1
                         add_candidate(edge_exposed, edge, diff_score)
 
             if not candidates:
+                self.log_fn(f"[DEBUG best_diffs BORDER] reject_stats={reject_stats}")
+                self.log_fn(
+                    "[DEBUG best_diffs BORDER] "
+                    f"candidate_pieces={len(candidate_pieces)}, "
+                    f"left_piece={len(left_piece)}, "
+                    f"best_coord={len(best_coord)}, "
+                    f"diff_keys={len(diff)}"
+                )
+
                 old_strat = self.strategy
                 self.strategy = Strategy.FILL
                 fallback_candidates = self.best_diffs(
@@ -1107,3 +1143,5 @@ class Puzzle:
         """
         edge_img = self.render_puzzle_view(show_fill=False, show_edges=True, white_bg=True)
         self.debug_images_.append(edge_img)
+
+

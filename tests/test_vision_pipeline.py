@@ -88,7 +88,7 @@ def build_pick_place_sequence(cmd):
             "z_mm": PICK_Z_MM,
         },
         {
-            "type": "TODO",
+            "type": "suction",
             "description": "suction_on",
             "piece_id": cmd["piece_id"],
         },
@@ -119,7 +119,7 @@ def build_pick_place_sequence(cmd):
             "rotation_deg": cmd["rotation_deg"],
         },
         {
-            "type": "TODO",
+            "type": "suction",
             "description": "suction_off",
             "piece_id": cmd["piece_id"],
         },

@@ -1,3 +1,6 @@
+from PIL import report
+
+
 class RobotCoordinateMapper:
     def __init__(self, workspace_size_px, workspace_size_mm, crop_offset_px=(0, 0)):
         self.workspace_w_px, self.workspace_h_px = workspace_size_px
@@ -19,9 +22,13 @@ class RobotCoordinateMapper:
             self.crop_px_to_workspace_px(point_px)
         )
 
-    def transform_report_to_robot_command(self, report):
-        pick_px = (report["x0"], report["y0"])
-        place_px = (report["x1"], report["y1"])
+    def transform_report_to_robot_command(self, report, pick_center=None):
+        if pick_center is not None:
+            pick_px = (pick_center["col"], pick_center["row"])
+        else:
+            pick_px = (report["y0"], report["x0"])
+
+        place_px = (report["y1"], report["x1"])
 
         pick_mm = self.crop_px_to_mm(pick_px)
         place_mm = self.crop_px_to_mm(place_px)
