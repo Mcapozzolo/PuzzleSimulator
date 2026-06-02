@@ -1,4 +1,3 @@
-
 import os
 import sys
 import cv2
@@ -13,7 +12,7 @@ print("[BOOT] run_robot_solver.py wurde gestartet", flush=True)
 # CONFIG
 # =========================
 
-USE_CAMERA = True
+USE_CAMERA = False
 CAMERA_INDEX = 1
 
 # Kamera-Capture robuster/schneller machen.
@@ -61,45 +60,6 @@ PICK_OFFSET_Y_MM = 380.0
 PICK_SIGN_X = -1
 PICK_SIGN_Y = -1
 
-# ---------------------------------------------------------
-# PICK-KALIBRATION
-# ---------------------------------------------------------
-# Wenn ein Teil gut und ein anderes schlecht gegriffen wird, reicht ein globaler
-# PICK_OFFSET_X/Y nicht aus. Dann ist die Umrechnung Kamera/Workspace -> Roboter
-# leicht verzerrt/skaliert/verdreht. Dafür kann hier eine affine Kalibrierung
-# eingetragen werden.
-#
-# Vorgehen im Labor:
-# 1) SEND_TO_ROBOT=False laufen lassen und die [PICK CAL] Zeilen notieren.
-# 2) Roboter manuell exakt auf dieselben Schraubenloch-Zentren fahren.
-# 3) Pro Punkt ein Paar eintragen:
-#       ((detected_x_mm, detected_y_mm), (robot_x_mm, robot_y_mm))
-#    detected_x/y kommen aus [PICK CAL] detected_workspace=(...)
-#    robot_x/y sind die manuell abgelesenen echten Roboterkoordinaten.
-# 4) Mindestens 3 Punkte, besser 4 Punkte über die Fläche verteilt verwenden.
-#
-# Beispiel:
-# PICK_CALIBRATION_POINTS = [
-#     ((74.6, 169.4), (275.9, 210.6)),
-#     ((80.2,  64.7), (270.2, 315.3)),
-#     ((237.2, 75.2), (113.3, 304.8)),
-#     ((217.5,186.9), (133.0, 193.1)),
-# ]
-PICK_USE_AFFINE_CALIBRATION = True
-PICK_CALIBRATION_POINTS = [
-    ((230.17, 195.51), (127,192)),
-    ((232.86,  77.10), (125,290)),
-    (( 77.51, 187.48), (265,196)),
-    (( 89.32,  75.20), (255,292)),
-]
-
-_PICK_AFFINE_CACHE = None
-
-# Optionaler mechanischer Feinoffset nach der affine-Kalibrierung.
-# Diesen nur verwenden, wenn ALLE Punkte gleichmässig daneben liegen.
-PICK_FINE_OFFSET_X_MM = 0.0
-PICK_FINE_OFFSET_Y_MM = 0.0
-
 # A5-Zielfläche direkt über ihre vier Ecken im Roboterkoordinatensystem.
 # Reihenfolge im Uhrzeigersinn: oben links, unten links, unten rechts, oben rechts.
 # Wichtig: Das sind ROBOTERKOORDINATEN, nicht ArUco-/Bildkoordinaten.
@@ -111,61 +71,13 @@ A5_TOP_RIGHT_ROBOT = (32.0, 90.0)
 A5_CENTER_MARGIN_X_MM = 5.0
 A5_CENTER_MARGIN_Y_MM = 5.0
 
-# ---------------------------------------------------------
-# PLACE-KORREKTUR / A5-FEINTUNING
-# ---------------------------------------------------------
-# Diese Werte betreffen NUR das Platzieren auf dem A5, nicht das Picking.
-# Positive/negative Richtung ist hier bewusst in ROBOTERKOORDINATEN angegeben.
-# Aktueller Laborbefund:
-# - Platzierung soll 15 mm weiter in negative Roboter-X-Richtung
-# - Platzierung soll 5 mm weiter in negative Roboter-Y-Richtung
-# Wichtig: Das muss hier negativ sein; positive X verschiebt in die falsche Richtung.
-PLACE_ROBOT_FINE_OFFSET_X_MM = 14.0
-PLACE_ROBOT_FINE_OFFSET_Y_MM = -4.0
-
-# Firmware akzeptiert laut Fehlermeldung keine negativen Y-Werte.
-# Deshalb wird die gesamte A5-Platzierung nach Gap + Fine-Offset automatisch
-# wieder in den erlaubten Roboterbereich geschoben, ohne die relativen Abstände
-# der Puzzleteile zu verändern.
-PLACE_KEEP_WITHIN_ROBOT_BOUNDS = True
-PLACE_ROBOT_MIN_SAFE_Y_MM = 2.0
-PLACE_ROBOT_MAX_SAFE_Y_MM = 348.0
-PLACE_ROBOT_MIN_SAFE_X_MM = 2.0
-PLACE_ROBOT_MAX_SAFE_X_MM = 348.0
-
-# Abstand zwischen den Puzzleteilen auf dem A5.
-# Bei 2.0 mm werden die Teile ungefähr um je 1 mm vom Puzzlezentrum weg bewegt.
-A5_INTER_PIECE_GAP_MM = 5.0
-
 # Das A5 liegt im Roboter horizontal/landscape: lange Kante = X, kurze Kante = Y.
 # Der Sauger-/Greifpunkt wird relativ zur linken oberen Puzzle-Kante platziert.
 # Falls die Greifpunktrotation in der Praxis gespiegelt wirkt, diesen Wert auf -1.0 setzen.
 GRIP_OFFSET_ROTATION_SIGN = 1.0
 
-# C-Achse / Servo-Rotation:
-# Der Roboter rotiert das Teil relativ zwischen Pick und Place.
-# C_ROTATION_SIGN = 1.0 bedeutet: Solver-Winkel wird direkt als Servo-Delta verwendet.
-# Falls die Teile exakt in die Gegenrichtung drehen, auf -1.0 setzen.
-C_ROTATION_SIGN = 1.0
-C_ROTATION_OFFSET_DEG = 0.0
-C_SERVO_CENTER_DEG = 90.0
-C_SERVO_MIN_DEG = 2.0
-C_SERVO_MAX_DEG = 178.0
-
-# Optionale manuelle Feinjustierung pro Puzzleteil.
-# Erst nach dem nächsten SEND_TO_ROBOT=False Debug verwenden.
-# Beispiel, falls Teil 3 in der Praxis 3° zu wenig im Uhrzeigersinn dreht:
-# PIECE_ROTATION_FINE_OFFSETS_DEG = {3: 3.0}
-PIECE_ROTATION_FINE_OFFSETS_DEG = {
-    3: 0.0,
-    4: 0.0,
-}
-
-
 ROBOT_MIN_X_MM = 0.0
 ROBOT_MAX_X_MM = 350.0
-# Firmware akzeptiert gemäss NOTOK-Meldung nur Y >= 0.
-# Darum darf die Softwarevalidierung negative Y-Werte nicht mehr erlauben.
 ROBOT_MIN_Y_MM = 0.0
 ROBOT_MAX_Y_MM = 350.0
 ROBOT_MIN_Z_MM = 0.0
@@ -173,7 +85,7 @@ ROBOT_MAX_Z_MM = 18.0
 # Damit das gelöste Puzzle nicht exakt auf der A5-Ecke beginnt,
 # sondern etwas nach innen verschoben liegt.
 
-SEND_TO_ROBOT = True
+SEND_TO_ROBOT = False
 ROBOT_PORT = "COM3"
 
 DEBUG_SAVE = True
@@ -261,74 +173,10 @@ def parse_transform_report(log_line):
     }
 
 
-def get_pick_affine_matrix():
-    """
-    Berechnet eine affine Abbildung von Workspace-mm zu Roboter-mm:
-        robot_x = a*x + b*y + c
-        robot_y = d*x + e*y + f
-
-    Dadurch werden nicht nur ein Offset, sondern auch Skalierung, leichte
-    Verdrehung und Scherung korrigiert. Genau das braucht man, wenn ein Pickpunkt
-    stimmt, ein anderer aber deutlich daneben liegt.
-    """
-    global _PICK_AFFINE_CACHE
-
-    if _PICK_AFFINE_CACHE is not None:
-        return _PICK_AFFINE_CACHE
-
-    if not PICK_USE_AFFINE_CALIBRATION or len(PICK_CALIBRATION_POINTS) < 3:
-        _PICK_AFFINE_CACHE = None
-        return None
-
-    src = np.asarray([p[0] for p in PICK_CALIBRATION_POINTS], dtype=np.float64)
-    dst = np.asarray([p[1] for p in PICK_CALIBRATION_POINTS], dtype=np.float64)
-
-    A = np.column_stack([src[:, 0], src[:, 1], np.ones(len(src))])
-
-    # Least Squares: funktioniert mit genau 3 Punkten und wird mit 4+ Punkten robuster.
-    coeff_x, *_ = np.linalg.lstsq(A, dst[:, 0], rcond=None)
-    coeff_y, *_ = np.linalg.lstsq(A, dst[:, 1], rcond=None)
-
-    M = np.vstack([coeff_x, coeff_y])
-    _PICK_AFFINE_CACHE = M
-
-    pred = A @ M.T
-    err = pred - dst
-    rms = float(np.sqrt(np.mean(np.sum(err * err, axis=1))))
-
-    print("[PICK CAL] affine workspace->robot aktiv")
-    print(
-        f"[PICK CAL] robot_x = {M[0,0]:.6f}*x + {M[0,1]:.6f}*y + {M[0,2]:.3f}"
-    )
-    print(
-        f"[PICK CAL] robot_y = {M[1,0]:.6f}*x + {M[1,1]:.6f}*y + {M[1,2]:.3f}"
-    )
-    print(f"[PICK CAL] calibration RMS error = {rms:.3f} mm")
-
-    for i, ((sx, sy), (rx, ry)) in enumerate(PICK_CALIBRATION_POINTS, start=1):
-        px, py = pred[i - 1]
-        print(
-            f"[PICK CAL] p{i}: src=({sx:.2f},{sy:.2f}) "
-            f"target=({rx:.2f},{ry:.2f}) pred=({px:.2f},{py:.2f}) "
-            f"err=({px-rx:+.2f},{py-ry:+.2f})"
-        )
-
-    return M
-
-
 def pick_to_robot(x_mm, y_mm):
-    M = get_pick_affine_matrix()
-
-    if M is not None:
-        robot_x = M[0, 0] * x_mm + M[0, 1] * y_mm + M[0, 2]
-        robot_y = M[1, 0] * x_mm + M[1, 1] * y_mm + M[1, 2]
-    else:
-        robot_x = PICK_OFFSET_X_MM + PICK_SIGN_X * x_mm
-        robot_y = PICK_OFFSET_Y_MM + PICK_SIGN_Y * y_mm
-
     return (
-        robot_x + PICK_FINE_OFFSET_X_MM,
-        robot_y + PICK_FINE_OFFSET_Y_MM,
+        PICK_OFFSET_X_MM + PICK_SIGN_X * x_mm,
+        PICK_OFFSET_Y_MM + PICK_SIGN_Y * y_mm,
     )
 
 def _vec_sub(a, b):
@@ -369,12 +217,6 @@ def place_to_robot(x_mm, y_mm):
         + A5_AXIS_X_UNIT[1] * x_mm
         + A5_AXIS_Y_UNIT[1] * y_mm
     )
-
-    # Feinkorrektur in echten Roboterkoordinaten.
-    # Wichtig: nur Place, nicht Pick.
-    robot_x += PLACE_ROBOT_FINE_OFFSET_X_MM
-    robot_y += PLACE_ROBOT_FINE_OFFSET_Y_MM
-
     return robot_x, robot_y
 
 
@@ -575,7 +417,7 @@ def draw_a5_aligned_solution_debug(robot_commands, pieces, align_info):
         cv2.circle(debug, (x, y), 13, (0, 0, 200), 2)
         cv2.putText(
             debug,
-            f"P{cmd['piece_id']} A5=({cmd['place_x_mm']:.1f}, {cmd['place_y_mm']:.1f}) / {cmd['rotation_deg']:.1f}deg [{cmd.get('place_point_source','?')}]",
+            f"P{cmd['piece_id']} ({cmd['place_x_mm']:.1f}, {cmd['place_y_mm']:.1f}) / {cmd['rotation_deg']:.1f}deg [{cmd.get('place_point_source','?')}]",
             (x + 10, y - 10),
             cv2.FONT_HERSHEY_SIMPLEX,
             0.42,
@@ -726,11 +568,9 @@ def draw_a5_alignment_diagnostics(robot_commands, pieces, align_info):
         cv2.circle(debug, (fx, fy), 7, (0, 0, 255), -1)
         cv2.circle(debug, (fx, fy), 13, (0, 0, 200), 2)
 
-        robot_x, robot_y = place_to_robot(cmd["place_x_mm"], cmd["place_y_mm"])
-        label_a5 = f"P{cmd['piece_id']} A5=({cmd['place_x_mm']:.1f}, {cmd['place_y_mm']:.1f})"
-        label_robot = f"Robot=({robot_x:.1f}, {robot_y:.1f}) rot={cmd['rotation_deg']:.1f}deg"
-        cv2.putText(debug, label_a5, (fx + 10, fy - 14), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (255,0,0), 1, cv2.LINE_AA)
-        cv2.putText(debug, label_robot, (fx + 10, fy + 7), cv2.FONT_HERSHEY_SIMPLEX, 0.38, (0,0,180), 1, cv2.LINE_AA)
+        label = f"P{cmd['piece_id']} ({cmd['place_x_mm']:.1f}, {cmd['place_y_mm']:.1f})"
+        cv2.putText(debug, label, (fx + 10, fy - 12), cv2.FONT_HERSHEY_SIMPLEX, 0.44, (255,0,0), 1, cv2.LINE_AA)
+        cv2.putText(debug, f"rot={cmd['rotation_deg']:.1f}deg", (fx + 10, fy + 8), cv2.FONT_HERSHEY_SIMPLEX, 0.40, (255,0,0), 1, cv2.LINE_AA)
 
     save_debug_image("26_a5_alignment_diagnostics.png", debug)
 
@@ -855,274 +695,15 @@ def detect_pick_centers_on_solved_puzzle(pieces):
     save_debug_image("05_solved_detected_screw_holes.png", debug)
     return centers
 
-
-
-def snapshot_piece_points_by_id(pieces):
-    """
-    Speichert die ursprünglichen Pixelpunkte vor puzzle.solve_puzzle().
-    Wichtig: Puzzle.solve_puzzle() mutiert piece.pixels, darum müssen wir vor dem
-    Solver eine Kopie behalten, wenn wir die echte Drehung später vergleichen wollen.
-    Rückgabe: piece_id -> ndarray mit Punkten (x=col, y=row).
-    """
-    snapshots = {}
-    for piece in pieces:
-        pts = []
-        for row, col in piece.pixels.keys():
-            pts.append((float(col), float(row)))
-        if pts:
-            snapshots[int(piece.id)] = np.asarray(pts, dtype=np.float32)
-    return snapshots
-
-
-def _downsample_points(points, max_points=2500):
-    pts = np.asarray(points, dtype=np.float32)
-    if pts.shape[0] <= max_points:
-        return pts
-    step = max(1, int(math.ceil(pts.shape[0] / max_points)))
-    return pts[::step]
-
-
-def _rotation_match_score(src_rel_xy, target_distance, origin_xy, angle_deg):
-    """
-    Bewertet, wie gut die Quellform nach Rotation auf die Zielform passt.
-    Kleine Werte sind besser.
-    """
-    a = math.radians(angle_deg)
-    ca = math.cos(a)
-    sa = math.sin(a)
-
-    x = src_rel_xy[:, 0]
-    y = src_rel_xy[:, 1]
-
-    rx = x * ca - y * sa + origin_xy[0]
-    ry = x * sa + y * ca + origin_xy[1]
-
-    ix = np.round(rx).astype(np.int32)
-    iy = np.round(ry).astype(np.int32)
-
-    valid = (
-        (ix >= 0)
-        & (iy >= 0)
-        & (ix < target_distance.shape[1])
-        & (iy < target_distance.shape[0])
-    )
-
-    if np.count_nonzero(valid) < max(20, int(0.5 * len(src_rel_xy))):
-        return float("inf")
-
-    return float(np.mean(target_distance[iy[valid], ix[valid]]))
-
-
-def estimate_piece_rotation_from_shape(initial_points_xy, initial_pick_xy, solved_points_xy, solved_pick_xy, piece_id=None):
-    """
-    Schätzt die ECHTE benötigte Rotation eines Teils über Form-Matching.
-
-    Warum: TRANSFORM_REPORT liefert bei manchen Teilen nur eine lokale/teilweise
-    Rotation aus dem Solver-Schritt. Bei den letzten Teilen kann dieser Winkel
-    trotz guter Place-Koordinate falsch sein. Diese Funktion vergleicht stattdessen
-    die ursprüngliche Teilform mit der final gelösten Teilform, beide relativ zum
-    Greifpunkt/Schraubenloch.
-    """
-    if initial_points_xy is None or solved_points_xy is None:
-        return None
-
-    src = np.asarray(initial_points_xy, dtype=np.float32) - np.asarray(initial_pick_xy, dtype=np.float32)
-    tgt = np.asarray(solved_points_xy, dtype=np.float32) - np.asarray(solved_pick_xy, dtype=np.float32)
-
-    if src.shape[0] < 50 or tgt.shape[0] < 50:
-        return None
-
-    src_s = _downsample_points(src, max_points=2500)
-    tgt_s = _downsample_points(tgt, max_points=6000)
-
-    all_pts = np.vstack([src_s, tgt_s])
-    min_x = float(np.min(all_pts[:, 0]))
-    min_y = float(np.min(all_pts[:, 1]))
-    max_x = float(np.max(all_pts[:, 0]))
-    max_y = float(np.max(all_pts[:, 1]))
-
-    pad = 35
-    width = int(math.ceil(max_x - min_x)) + 2 * pad + 1
-    height = int(math.ceil(max_y - min_y)) + 2 * pad + 1
-
-    if width <= 5 or height <= 5 or width > 2000 or height > 2000:
-        return None
-
-    origin = np.asarray([pad - min_x, pad - min_y], dtype=np.float32)
-
-    # Distanzbild der Zielkontur/-fläche: Zielpunkte sind 0, Umgebung hat Abstand.
-    target_img = np.full((height, width), 255, dtype=np.uint8)
-    tx = np.round(tgt_s[:, 0] + origin[0]).astype(np.int32)
-    ty = np.round(tgt_s[:, 1] + origin[1]).astype(np.int32)
-    valid_t = (tx >= 0) & (ty >= 0) & (tx < width) & (ty < height)
-    target_img[ty[valid_t], tx[valid_t]] = 0
-
-    # Leicht dilatieren, damit Pixel-Rasterung nicht zu hart bestraft.
-    target_zero = (target_img == 0).astype(np.uint8) * 255
-    target_zero = cv2.dilate(target_zero, np.ones((3, 3), np.uint8), iterations=1)
-    target_img = np.full((height, width), 255, dtype=np.uint8)
-    target_img[target_zero > 0] = 0
-
-    dist = cv2.distanceTransform(target_img, cv2.DIST_L2, 3)
-
-    best_angle = 0.0
-    best_score = float("inf")
-
-    # Grobsuche über alle Winkel.
-    for angle in np.arange(-180.0, 180.0, 2.0):
-        score = _rotation_match_score(src_s, dist, origin, angle)
-        if score < best_score:
-            best_score = score
-            best_angle = float(angle)
-
-    # Feinsuche rund um den besten Winkel.
-    fine_start = best_angle - 3.0
-    fine_end = best_angle + 3.001
-    for angle in np.arange(fine_start, fine_end, 0.25):
-        norm_angle = normalize_rotation_deg(float(angle))
-        score = _rotation_match_score(src_s, dist, origin, norm_angle)
-        if score < best_score:
-            best_score = score
-            best_angle = norm_angle
-
-    best_angle = normalize_rotation_deg(best_angle)
-
-    if piece_id is not None:
-        print(
-            f"[ROT MATCH] Piece {piece_id}: shape_rotation={best_angle:.2f}°, "
-            f"score={best_score:.2f}"
-        )
-
-    return best_angle
-
-def _candidate_is_valid_hole_center(rr, cc, inner_mask, dist):
-    if not (0 <= rr < inner_mask.shape[0] and 0 <= cc < inner_mask.shape[1]):
-        return False
-    if inner_mask[rr, cc] == 0:
-        return False
-    if float(dist[rr, cc]) < 8.0:
-        return False
-    return True
-
-
-def _circle_fit_least_squares(points_xy):
-    """
-    Least-Squares-Kreisfit für Punkte im Format (x, y).
-    Gibt (cx, cy, r, residual) zurück oder None.
-    """
-    pts = np.asarray(points_xy, dtype=np.float32)
-    if pts.shape[0] < 8:
-        return None
-
-    x = pts[:, 0]
-    y = pts[:, 1]
-
-    A = np.column_stack([2 * x, 2 * y, np.ones_like(x)])
-    b = x * x + y * y
-
-    try:
-        sol, *_ = np.linalg.lstsq(A, b, rcond=None)
-    except np.linalg.LinAlgError:
-        return None
-
-    cx, cy, c = sol
-    r2 = c + cx * cx + cy * cy
-    if r2 <= 0:
-        return None
-
-    r = float(math.sqrt(r2))
-    d = np.sqrt((x - cx) ** 2 + (y - cy) ** 2)
-    residual = float(np.mean(np.abs(d - r)))
-
-    return float(cx), float(cy), r, residual
-
-
-def _refine_hole_center_with_edges(gray, inner_mask, dist, coarse_row, coarse_col, patch_radius=20):
-    """
-    Verfeinert einen groben Schraubenloch-Kandidaten über lokale Kreis-/Kanteninformation.
-    Ziel: nicht den hellsten Reflex greifen, sondern das Zentrum des runden Loch-/Ringbereichs.
-    """
-    h, w = gray.shape[:2]
-    cr = int(round(coarse_row))
-    cc = int(round(coarse_col))
-
-    y0 = max(0, cr - patch_radius)
-    y1 = min(h, cr + patch_radius + 1)
-    x0 = max(0, cc - patch_radius)
-    x1 = min(w, cc + patch_radius + 1)
-
-    if y1 <= y0 or x1 <= x0:
-        return coarse_row, coarse_col, 0.0
-
-    patch = gray[y0:y1, x0:x1]
-    patch_mask = inner_mask[y0:y1, x0:x1]
-
-    if patch.size == 0 or np.count_nonzero(patch_mask) < 20:
-        return coarse_row, coarse_col, 0.0
-
-    patch_blur = cv2.GaussianBlur(patch, (5, 5), 0)
-
-    # CLAHE macht den Metallring/Lochrand kontrastreicher.
-    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(4, 4))
-    patch_eq = clahe.apply(patch_blur)
-
-    # Kanten im lokalen Patch suchen.
-    edges = cv2.Canny(patch_eq, 35, 100)
-    edges = cv2.bitwise_and(edges, edges, mask=patch_mask)
-
-    ys, xs = np.where(edges > 0)
-
-    if len(xs) < 8:
-        return coarse_row, coarse_col, 0.0
-
-    # Nur Kanten im sinnvollen Radius um den groben Kandidaten verwenden.
-    local_cx = cc - x0
-    local_cy = cr - y0
-    d = np.sqrt((xs - local_cx) ** 2 + (ys - local_cy) ** 2)
-    keep = (d >= 3.0) & (d <= 18.0)
-
-    xs = xs[keep]
-    ys = ys[keep]
-
-    if len(xs) < 8:
-        return coarse_row, coarse_col, 0.0
-
-    fit = _circle_fit_least_squares(np.column_stack([xs, ys]))
-
-    if fit is None:
-        return coarse_row, coarse_col, 0.0
-
-    cx, cy, r, residual = fit
-
-    # Schraubenloch/Ring ist klein. Ausreisser ignorieren.
-    if r < 3.0 or r > 16.0:
-        return coarse_row, coarse_col, 0.0
-
-    if residual > 3.5:
-        return coarse_row, coarse_col, 0.0
-
-    refined_row = y0 + cy
-    refined_col = x0 + cx
-
-    rr = int(round(refined_row))
-    cc2 = int(round(refined_col))
-
-    if not _candidate_is_valid_hole_center(rr, cc2, inner_mask, dist):
-        return coarse_row, coarse_col, 0.0
-
-    confidence = max(0.0, 1.0 - residual / 3.5)
-    return float(refined_row), float(refined_col), confidence
-
-
 def detect_screw_hole_center(piece, source_img, debug_img=None):
     """
-    Erkennt das Schraubenloch eines Puzzleteils genauer.
+    Erkennt das Schraubenloch eines Puzzleteils visuell.
 
-    Verbesserungen gegenüber der alten Version:
-    - HoughCircles wird immer genutzt, nicht nur als Fallback.
-    - helle Konturen werden weiterhin als Kandidaten genutzt.
-    - jeder Kandidat wird lokal mit Canny-Kanten + Kreisfit verfeinert.
-    - dadurch landet der Pickpunkt eher im Ringzentrum statt auf einem hellen Reflex.
+    Wichtig:
+    - sucht nur innerhalb der Piece-Maske
+    - ignoriert Randbereiche des Puzzleteils
+    - bevorzugt runde, kleine, helle Strukturen
+    - fallback: BBox-Mitte
     """
 
     min_row, min_col, max_row, max_col = piece.get_bbox()
@@ -1149,7 +730,7 @@ def detect_screw_hole_center(piece, source_img, debug_img=None):
         if 0 <= rr < piece_mask.shape[0] and 0 <= cc < piece_mask.shape[1]:
             piece_mask[rr, cc] = 255
 
-    # Randbereich entfernen, damit Einbuchtungen/Kanten nicht als Loch erkannt werden.
+    # Randbereich entfernen, damit Einbuchtungen/Reflexe an Kanten nicht erkannt werden
     erode_kernel = np.ones((13, 13), np.uint8)
     inner_mask = cv2.erode(piece_mask, erode_kernel, iterations=1)
 
@@ -1159,60 +740,11 @@ def detect_screw_hole_center(piece, source_img, debug_img=None):
     dist = cv2.distanceTransform(piece_mask, cv2.DIST_L2, 5)
 
     gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+
+    # Lokalen Kontrast verbessern
     gray_blur = cv2.GaussianBlur(gray, (5, 5), 0)
 
-    candidates = []
-
-    # ------------------------------------------------------------------
-    # Methode A: HoughCircles direkt auf lokaler Kontrastverbesserung
-    # ------------------------------------------------------------------
-    masked_gray = cv2.bitwise_and(gray_blur, gray_blur, mask=inner_mask)
-
-    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(4, 4))
-    eq = clahe.apply(masked_gray)
-
-    circles = cv2.HoughCircles(
-        eq,
-        cv2.HOUGH_GRADIENT,
-        dp=1.2,
-        minDist=18,
-        param1=70,
-        param2=8,
-        minRadius=3,
-        maxRadius=13,
-    )
-
-    if circles is not None:
-        circles = np.round(circles[0, :]).astype(int)
-
-        for x, y, r in circles:
-            if not _candidate_is_valid_hole_center(int(y), int(x), inner_mask, dist):
-                continue
-
-            local = gray[
-                max(0, y - 8):min(gray.shape[0], y + 9),
-                max(0, x - 8):min(gray.shape[1], x + 9),
-            ]
-
-            local_brightness = float(np.mean(local)) if local.size else 0.0
-            edge_distance = float(dist[int(y), int(x)])
-
-            candidates.append({
-                "row": float(min_row + y),
-                "col": float(min_col + x),
-                "row_roi": float(y),
-                "col_roi": float(x),
-                "radius": float(r),
-                "area": float(np.pi * r * r),
-                "circularity": 1.0,
-                "edge_distance": edge_distance,
-                "score": 350.0 + edge_distance * 4.0 + local_brightness * 0.15 - abs(r - 6.0) * 3.0,
-                "method": "hough",
-            })
-
-    # ------------------------------------------------------------------
-    # Methode B: helle Metall-/Ringbereiche als Konturen
-    # ------------------------------------------------------------------
+    # Helle Metall-/Lochregionen
     bright = cv2.adaptiveThreshold(
         gray_blur,
         255,
@@ -1233,10 +765,12 @@ def detect_screw_hole_center(piece, source_img, debug_img=None):
         cv2.CHAIN_APPROX_SIMPLE,
     )
 
+    candidates = []
+
     for cnt in contours:
         area = cv2.contourArea(cnt)
 
-        if area < 8 or area > 450:
+        if area < 8 or area > 400:
             continue
 
         perimeter = cv2.arcLength(cnt, True)
@@ -1245,26 +779,27 @@ def detect_screw_hole_center(piece, source_img, debug_img=None):
 
         circularity = 4.0 * np.pi * area / (perimeter * perimeter)
 
-        if circularity < 0.20:
+        if circularity < 0.25:
             continue
 
-        # Momenten-Zentrum ist bei Teilreflexen oft besser als minEnclosingCircle.
-        M = cv2.moments(cnt)
-        if M["m00"] != 0:
-            x = M["m10"] / M["m00"]
-            y = M["m01"] / M["m00"]
-        else:
-            (x, y), _ = cv2.minEnclosingCircle(cnt)
+        (x, y), radius = cv2.minEnclosingCircle(cnt)
 
-        (_, _), radius = cv2.minEnclosingCircle(cnt)
-
-        if radius < 2.0 or radius > 15.0:
+        if radius < 2.0 or radius > 14.0:
             continue
 
         rr = int(round(y))
         cc = int(round(x))
 
-        if not _candidate_is_valid_hole_center(rr, cc, inner_mask, dist):
+        if not (0 <= rr < piece_mask.shape[0] and 0 <= cc < piece_mask.shape[1]):
+            continue
+
+        if inner_mask[rr, cc] == 0:
+            continue
+
+        edge_distance = float(dist[rr, cc])
+
+        # Loch sollte nicht direkt an der Puzzlekante liegen
+        if edge_distance < 8:
             continue
 
         local = gray[
@@ -1273,106 +808,89 @@ def detect_screw_hole_center(piece, source_img, debug_img=None):
         ]
 
         local_brightness = float(np.mean(local)) if local.size else 0.0
-        edge_distance = float(dist[rr, cc])
 
         score = (
-            circularity * 120.0
+            circularity * 100.0
             + edge_distance * 4.0
-            + local_brightness * 0.25
+            + local_brightness * 0.2
             - abs(radius - 5.0) * 3.0
         )
 
         candidates.append({
-            "row": float(min_row + y),
-            "col": float(min_col + x),
-            "row_roi": float(y),
-            "col_roi": float(x),
-            "radius": float(radius),
-            "area": float(area),
-            "circularity": float(circularity),
+            "row": min_row + y,
+            "col": min_col + x,
+            "radius": radius,
+            "area": area,
+            "circularity": circularity,
             "edge_distance": edge_distance,
             "score": score,
-            "method": "bright_contour",
         })
 
-    # ------------------------------------------------------------------
-    # Kandidaten lokal über Ring-/Kanten-Kreisfit verfeinern
-    # ------------------------------------------------------------------
-    refined_candidates = []
+    # Zweiter Versuch: HoughCircles, falls Konturen nichts Gutes finden
+    if not candidates:
+        masked_gray = cv2.bitwise_and(gray, gray, mask=inner_mask)
 
-    for cand in candidates:
-        coarse_row_roi = cand["row_roi"]
-        coarse_col_roi = cand["col_roi"]
-
-        refined_row_roi, refined_col_roi, refine_conf = _refine_hole_center_with_edges(
-            gray,
-            inner_mask,
-            dist,
-            coarse_row_roi,
-            coarse_col_roi,
+        circles = cv2.HoughCircles(
+            masked_gray,
+            cv2.HOUGH_GRADIENT,
+            dp=1.2,
+            minDist=20,
+            param1=80,
+            param2=10,
+            minRadius=3,
+            maxRadius=12,
         )
 
-        # Kandidat nicht zu weit verschieben, sonst war der Kreisfit auf einer Fremdkante.
-        shift = math.hypot(refined_col_roi - coarse_col_roi, refined_row_roi - coarse_row_roi)
-        if shift > 9.0:
-            refined_row_roi = coarse_row_roi
-            refined_col_roi = coarse_col_roi
-            refine_conf = 0.0
+        if circles is not None:
+            circles = np.round(circles[0, :]).astype(int)
 
-        rr = int(round(refined_row_roi))
-        cc = int(round(refined_col_roi))
+            for x, y, r in circles:
+                if not (0 <= y < piece_mask.shape[0] and 0 <= x < piece_mask.shape[1]):
+                    continue
 
-        if not _candidate_is_valid_hole_center(rr, cc, inner_mask, dist):
-            continue
+                if inner_mask[y, x] == 0:
+                    continue
 
-        cand = dict(cand)
-        cand["row"] = float(min_row + refined_row_roi)
-        cand["col"] = float(min_col + refined_col_roi)
-        cand["row_roi"] = float(refined_row_roi)
-        cand["col_roi"] = float(refined_col_roi)
-        cand["refine_conf"] = float(refine_conf)
-        cand["score"] += refine_conf * 120.0 - shift * 2.0
+                edge_distance = float(dist[y, x])
 
-        refined_candidates.append(cand)
+                if edge_distance < 8:
+                    continue
 
-    if refined_candidates:
-        best = max(refined_candidates, key=lambda c: c["score"])
+                candidates.append({
+                    "row": float(min_row + y),
+                    "col": float(min_col + x),
+                    "radius": float(r),
+                    "area": float(np.pi * r * r),
+                    "circularity": 1.0,
+                    "edge_distance": edge_distance,
+                    "score": 200.0 + edge_distance * 4.0,
+                })
+
+    if candidates:
+        best = max(candidates, key=lambda c: c["score"])
 
         row = float(best["row"])
         col = float(best["col"])
 
         if debug_img is not None:
-            cv2.circle(debug_img, (int(round(col)), int(round(row))), 9, (0, 255, 255), -1)
-            cv2.circle(debug_img, (int(round(col)), int(round(row))), 15, (255, 0, 255), 2)
+            cv2.circle(debug_img, (int(col), int(row)), 9, (0, 255, 255), -1)
             cv2.putText(
                 debug_img,
                 f"H{piece.id}",
-                (int(round(col)) + 10, int(round(row)) - 10),
+                (int(col) + 10, int(row) - 10),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 0.7,
                 (0, 255, 255),
                 2,
                 cv2.LINE_AA,
             )
-            cv2.putText(
-                debug_img,
-                f"{best['method']} r={best['radius']:.1f}",
-                (int(round(col)) + 10, int(round(row)) + 14),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.45,
-                (255, 0, 255),
-                1,
-                cv2.LINE_AA,
-            )
 
         print(
             f"[HOLE] Piece {piece.id}: "
             f"row={row:.1f}, col={col:.1f}, "
-            f"method={best['method']}, "
             f"r={best['radius']:.1f}, "
             f"circ={best['circularity']:.2f}, "
             f"dist={best['edge_distance']:.1f}, "
-            f"refine={best.get('refine_conf', 0.0):.2f}, "
             f"score={best['score']:.1f}"
         )
 
@@ -1407,55 +925,23 @@ def detect_screw_hole_center(piece, source_img, debug_img=None):
         "col": fallback_col,
     }
 
-
 def normalize_rotation_deg(angle_deg):
     return round(((angle_deg + 180) % 360) - 180, 2)
 
 def rotation_to_servo_steps(angle_deg):
-    """
-    Wandelt den gewünschten Puzzle-Rotationswinkel in zwei Servo-C-Winkel um.
+    angle = normalize_rotation_deg(angle_deg)
 
-    Wichtig: Für den Sauger zählt die relative Änderung zwischen Pick und Place:
-        delta = final_rot - pre_rot
+    if angle < 0:
+        # Beispiel -70:
+        # zuerst auf 70, dann auf 0
+        return abs(angle), 0.0
 
-    Die alte Version setzte final_rot immer auf 0° oder 180°. Dadurch wurde bei
-    kleinen positiven Winkeln wegen der Sicherheits-Clamps auf 2°/178° ein Teil
-    der Rotation abgeschnitten. Beispiel: +4.6° wurde effektiv nur ca. +2.6°.
+    if angle > 0:
+        # Beispiel +70:
+        # zuerst auf 180-70=110, dann auf 180
+        return 180.0 - angle, 180.0
 
-    Neue Logik: Delta symmetrisch um die Servo-Mitte 90° verteilen:
-        pre_rot   = 90° - delta/2
-        final_rot = 90° + delta/2
-
-    Dadurch bleiben auch kleine Winkel exakt und grosse Winkel nutzen weiterhin
-    fast den ganzen Servo-Bereich.
-    """
-    desired_delta = normalize_rotation_deg(
-        C_ROTATION_SIGN * angle_deg + C_ROTATION_OFFSET_DEG
-    )
-
-    max_delta = C_SERVO_MAX_DEG - C_SERVO_MIN_DEG
-
-    if desired_delta > max_delta:
-        print(
-            f"[ROT WARN] Gewünschte Rotation {desired_delta:.2f}° > "
-            f"Servo-Max-Delta {max_delta:.2f}° -> wird begrenzt"
-        )
-        desired_delta = max_delta
-
-    if desired_delta < -max_delta:
-        print(
-            f"[ROT WARN] Gewünschte Rotation {desired_delta:.2f}° < "
-            f"-Servo-Max-Delta {-max_delta:.2f}° -> wird begrenzt"
-        )
-        desired_delta = -max_delta
-
-    pre_rot = C_SERVO_CENTER_DEG - desired_delta / 2.0
-    final_rot = C_SERVO_CENTER_DEG + desired_delta / 2.0
-
-    pre_rot = max(C_SERVO_MIN_DEG, min(C_SERVO_MAX_DEG, pre_rot))
-    final_rot = max(C_SERVO_MIN_DEG, min(C_SERVO_MAX_DEG, final_rot))
-
-    return pre_rot, final_rot
+    return 90.0, 90.0
 
 def build_pick_place_sequence(cmd):
     pick_x, pick_y = pick_to_robot(
@@ -1470,8 +956,8 @@ def build_pick_place_sequence(cmd):
 
     pre_rot, final_rot = rotation_to_servo_steps(cmd["rotation_deg"])
 
-    pre_rot = max(C_SERVO_MIN_DEG, min(C_SERVO_MAX_DEG, pre_rot))
-    final_rot = max(C_SERVO_MIN_DEG, min(C_SERVO_MAX_DEG, final_rot))
+    pre_rot = max(2.0, min(178.0, pre_rot))
+    final_rot = max(2.0, min(178.0, final_rot))
 
     return [
         {
@@ -1547,36 +1033,12 @@ def print_robot_commands(robot_commands):
     print("\n[ROBOT COMMANDS]")
 
     for cmd in robot_commands:
-        pick_robot_x, pick_robot_y = pick_to_robot(
-            cmd["pick_x_mm"],
-            cmd["pick_y_mm"],
-        )
-        place_robot_x, place_robot_y = place_to_robot(
-            cmd["place_x_mm"],
-            cmd["place_y_mm"],
-        )
-
         print(
             f"\nPiece {cmd['piece_id']}: "
-            f"PickAruco=({cmd['pick_x_mm']:.1f}, {cmd['pick_y_mm']:.1f}) mm | "
-            f"PickRobot=({pick_robot_x:.1f}, {pick_robot_y:.1f}) mm | "
-            f"PlaceA5=({cmd['place_x_mm']:.1f}, {cmd['place_y_mm']:.1f}) mm | "
-            f"PlaceRobot=({place_robot_x:.1f}, {place_robot_y:.1f}) mm | "
-            f"Gap={cmd.get('a5_gap_applied_mm', 0.0):.1f} mm "
-            f"({cmd.get('a5_gap_dx_mm', 0.0):+.1f}, {cmd.get('a5_gap_dy_mm', 0.0):+.1f}) | "
-            f"Rot={cmd['rotation_deg']:.1f}° "
-            f"[{cmd.get('rotation_source', 'unknown')}, fine={cmd.get('rotation_fine_offset_deg', 0.0):+.1f}°]"
+            f"Pick=({cmd['pick_x_mm']:.1f}, {cmd['pick_y_mm']:.1f}) mm | "
+            f"Place=({cmd['place_x_mm']:.1f}, {cmd['place_y_mm']:.1f}) mm | "
+            f"Rot={cmd['rotation_deg']:.1f}°"
         )
-        print(
-            f"  [PICK CAL] Piece {cmd['piece_id']}: "
-            f"detected_workspace=({cmd['pick_x_mm']:.2f}, {cmd['pick_y_mm']:.2f}) "
-            f"current_robot_target=({pick_robot_x:.2f}, {pick_robot_y:.2f})"
-        )
-        if "rotation_from_transform_report_deg" in cmd:
-            print(
-                f"  [ROT DBG] transform_report={cmd['rotation_from_transform_report_deg']:.1f}° "
-                f"-> shape_match={cmd['rotation_deg']:.1f}°"
-            )
 
         for step in build_pick_place_sequence(cmd):
 
@@ -1602,32 +1064,6 @@ def print_robot_commands(robot_commands):
                 f"C={step.get('rotation_deg', 0.0):.2f}°"
             )
 
-def validate_robot_plan(robot_commands):
-    """
-    Prüft alle berechneten MOVE-Positionen, bevor der Roboter überhaupt startet.
-
-    Wichtig: build_pick_place_sequence enthält auch rotate- und suction-Steps.
-    Diese besitzen keine x_mm/y_mm/z_mm und dürfen deshalb nicht wie MOVE-Steps
-    validiert oder als Firmware-MOVE ausgegeben werden.
-    """
-    print("\n[ROBOT CHECK] Prüfe alle MOVE-Positionen vor dem Senden...")
-
-    for cmd in robot_commands:
-        for step in build_pick_place_sequence(cmd):
-            if step.get("type") != "move":
-                continue
-
-            validate_robot_position(
-                step["x_mm"],
-                step["y_mm"],
-                step["z_mm"],
-                step.get("rotation_deg", 90.0),
-                f"Piece {cmd['piece_id']} / {step['description']}",
-            )
-
-    print("[ROBOT CHECK] Alle MOVE-Positionen sind innerhalb der erlaubten Grenzen.")
-
-
 def validate_robot_position(x, y, z, c, description=""):
     errors = []
 
@@ -1640,10 +1076,8 @@ def validate_robot_position(x, y, z, c, description=""):
     if not (ROBOT_MIN_Z_MM <= z <= ROBOT_MAX_Z_MM):
         errors.append(f"Z={z:.2f} ausserhalb [{ROBOT_MIN_Z_MM}, {ROBOT_MAX_Z_MM}]")
 
-    if not (C_SERVO_MIN_DEG <= c <= C_SERVO_MAX_DEG):
-        errors.append(
-            f"C={c:.2f} ausserhalb [{C_SERVO_MIN_DEG}, {C_SERVO_MAX_DEG}]"
-        )
+    if not (2 <= c <= 178):
+        errors.append(f"C={c:.2f} ausserhalb [2, 178]")
 
     if errors:
         raise ValueError(
@@ -1664,11 +1098,11 @@ def send_to_robot(robot_commands):
     def clamp_c_local(c_deg):
         c_deg = float(c_deg)
 
-        if c_deg < C_SERVO_MIN_DEG:
-            return int(round(C_SERVO_MIN_DEG))
+        if c_deg < 2.0:
+            return 2
 
-        if c_deg > C_SERVO_MAX_DEG:
-            return int(round(C_SERVO_MAX_DEG))
+        if c_deg > 178.0:
+            return 178
 
         return int(round(c_deg))
 
@@ -1821,151 +1255,6 @@ def send_to_robot(robot_commands):
         robot.close()
 
 
-def apply_inter_piece_gap(robot_commands, align_info):
-    """
-    Fügt einen kleinen Abstand zwischen den Puzzleteilen hinzu.
-
-    Wichtig:
-    Die alte Variante hat nur geprüft, ob ein Teil links/rechts bzw. oben/unten
-    vom Gesamtzentrum liegt. Bei asymmetrischen Teilen kann das die falsche
-    Hälfte treffen oder zu wenig Abstand erzeugen.
-
-    Diese Version bestimmt zuerst die relative 2x2-Position der gelösten Teile
-    über ihre BBox-Zentren:
-        linke Spalte  -> -gap/2 in A5-X
-        rechte Spalte -> +gap/2 in A5-X
-        obere Zeile   -> -gap/2 in A5-Y
-        untere Zeile  -> +gap/2 in A5-Y
-
-    Dadurch bleibt die Puzzle-Logik stabiler und die Teile werden gleichmässig
-    auseinandergezogen.
-    """
-    gap = float(A5_INTER_PIECE_GAP_MM)
-
-    if gap <= 0.0 or not robot_commands:
-        return
-
-    refs = []
-
-    for cmd in robot_commands:
-        ref_px = cmd.get("solved_bbox_center_px", cmd.get("raw_place_grip_px"))
-        if ref_px is None:
-            continue
-
-        ref_x_mm, ref_y_mm = solution_point_to_a5_mm(
-            ref_px[0],
-            ref_px[1],
-            align_info,
-        )
-
-        refs.append((cmd, ref_x_mm, ref_y_mm))
-
-    if not refs:
-        return
-
-    xs = sorted(r[1] for r in refs)
-    ys = sorted(r[2] for r in refs)
-
-    split_x = (xs[len(xs) // 2 - 1] + xs[len(xs) // 2]) / 2.0 if len(xs) >= 2 else xs[0]
-    split_y = (ys[len(ys) // 2 - 1] + ys[len(ys) // 2]) / 2.0 if len(ys) >= 2 else ys[0]
-
-    half_gap = gap / 2.0
-
-    for cmd, ref_x_mm, ref_y_mm in refs:
-        dx = -half_gap if ref_x_mm < split_x else half_gap
-        dy = -half_gap if ref_y_mm < split_y else half_gap
-
-        cmd["place_x_mm"] += dx
-        cmd["place_y_mm"] += dy
-
-        cmd["a5_gap_applied_mm"] = gap
-        cmd["a5_gap_dx_mm"] = dx
-        cmd["a5_gap_dy_mm"] = dy
-
-    print(
-        f"[A5 GAP] grid-basiert angewendet: gap={gap:.1f} mm, "
-        f"split=({split_x:.1f}, {split_y:.1f})"
-    )
-
-
-
-def shift_a5_place_coordinates_by_robot_delta(robot_commands, dx_robot, dy_robot):
-    """
-    Verschiebt alle A5-Place-Koordinaten um einen Delta in echten
-    Roboterkoordinaten. Dadurch bleiben die relativen Abstände zwischen den
-    Puzzleteilen erhalten.
-    """
-    delta_x_a5 = dx_robot * A5_AXIS_X_UNIT[0] + dy_robot * A5_AXIS_X_UNIT[1]
-    delta_y_a5 = dx_robot * A5_AXIS_Y_UNIT[0] + dy_robot * A5_AXIS_Y_UNIT[1]
-
-    for cmd in robot_commands:
-        cmd["place_x_mm"] += delta_x_a5
-        cmd["place_y_mm"] += delta_y_a5
-
-    return delta_x_a5, delta_y_a5
-
-
-def keep_place_points_inside_robot_bounds(robot_commands):
-    """
-    Stellt sicher, dass die Place-Positionen nach Fine-Offset und Gap noch im
-    von der Firmware akzeptierten Roboterbereich liegen.
-
-    Wichtig: Es wird NICHT pro Teil geclamped, weil das die Puzzle-Geometrie
-    verzerren würde. Stattdessen wird die komplette Lösung als Ganzes verschoben.
-    """
-    if not PLACE_KEEP_WITHIN_ROBOT_BOUNDS or not robot_commands:
-        return (0.0, 0.0)
-
-    coords = [place_to_robot(cmd["place_x_mm"], cmd["place_y_mm"]) for cmd in robot_commands]
-    xs = [p[0] for p in coords]
-    ys = [p[1] for p in coords]
-
-    dx = 0.0
-    dy = 0.0
-
-    if min(xs) < PLACE_ROBOT_MIN_SAFE_X_MM:
-        dx = PLACE_ROBOT_MIN_SAFE_X_MM - min(xs)
-    elif max(xs) > PLACE_ROBOT_MAX_SAFE_X_MM:
-        dx = PLACE_ROBOT_MAX_SAFE_X_MM - max(xs)
-
-    if min(ys) < PLACE_ROBOT_MIN_SAFE_Y_MM:
-        dy = PLACE_ROBOT_MIN_SAFE_Y_MM - min(ys)
-    elif max(ys) > PLACE_ROBOT_MAX_SAFE_Y_MM:
-        dy = PLACE_ROBOT_MAX_SAFE_Y_MM - max(ys)
-
-    if abs(dx) > 1e-9 or abs(dy) > 1e-9:
-        da5x, da5y = shift_a5_place_coordinates_by_robot_delta(robot_commands, dx, dy)
-        print(
-            f"[A5 SAFETY SHIFT] Placepunkte global verschoben: "
-            f"robot_delta=({dx:+.2f}, {dy:+.2f}) mm -> "
-            f"a5_delta=({da5x:+.2f}, {da5y:+.2f}) mm"
-        )
-
-    return dx, dy
-
-
-def deduplicate_robot_commands_by_piece(robot_commands):
-    """
-    Der Backtracking-Solver kann mehrere TRANSFORM_REPORT-Zeilen für dasselbe
-    Piece ausgeben. Für den Roboter darf jedes physische Teil aber nur einmal
-    gepickt und platziert werden. Wir behalten deshalb pro piece_id den letzten
-    berechneten Command.
-    """
-    unique = {}
-    duplicates = []
-
-    for cmd in robot_commands:
-        pid = int(cmd["piece_id"])
-        if pid in unique:
-            duplicates.append(pid)
-        unique[pid] = cmd
-
-    if duplicates:
-        dup_text = ", ".join(str(pid) for pid in sorted(set(duplicates)))
-        print(f"[WARN] Doppelte Robot-Commands entfernt für Piece(s): {dup_text}")
-
-    return [unique[pid] for pid in sorted(unique.keys())]
-
 def align_solution_to_a5(robot_commands, solution_points_px):
     """
     Richtet das vom Solver gelöste Puzzle horizontal in die A5-Fläche ein.
@@ -2088,13 +1377,9 @@ def align_solution_to_a5(robot_commands, solution_points_px):
         cmd["place_y_mm"] = offset_y + grip_dist_from_top_mm
 
         # Die globale Puzzle-Ausrichtung muss auch in die Teilrotation einfliessen.
-        rotation_before_fine = normalize_rotation_deg(
+        cmd["rotation_deg"] = normalize_rotation_deg(
             cmd["rotation_deg"] + best["layout_rot"]
         )
-
-        piece_rot_fine = float(PIECE_ROTATION_FINE_OFFSETS_DEG.get(int(cmd["piece_id"]), 0.0))
-        cmd["rotation_deg"] = normalize_rotation_deg(rotation_before_fine + piece_rot_fine)
-        cmd["rotation_fine_offset_deg"] = piece_rot_fine
 
         cmd["a5_grip_offset_from_left_mm"] = grip_dist_from_left_mm
         cmd["a5_grip_offset_from_top_mm"] = grip_dist_from_top_mm
@@ -2123,15 +1408,6 @@ def align_solution_to_a5(robot_commands, solution_points_px):
     best["offset_x"] = offset_x
     best["offset_y"] = offset_y
 
-    # Nach der Grundplatzierung einen kleinen Abstand zwischen den Teilen erzeugen.
-    # Das verändert nur die Placepunkte, nicht die Pickpunkte.
-    apply_inter_piece_gap(robot_commands, best)
-
-    # Danach die gesamte Lösung bei Bedarf zurück in den durch die Firmware
-    # erlaubten Roboterbereich schieben. Kein Einzelpunkt-Clamping.
-    safety_dx, safety_dy = keep_place_points_inside_robot_bounds(robot_commands)
-    best["place_safety_shift_robot"] = (safety_dx, safety_dy)
-
     print(
         f"[A5 ALIGN] A5_size=({A5_WIDTH_MM:.1f}, {A5_HEIGHT_MM:.1f}) mm, "
         f"deskew={best['base_deskew_deg']:.2f}°, "
@@ -2139,10 +1415,7 @@ def align_solution_to_a5(robot_commands, solution_points_px):
         f"layout_rot={best['layout_rot']:.2f}°, "
         f"scale={best['scale']:.4f} mm/px, "
         f"puzzle_size=({best['final_w']:.1f}, {best['final_h']:.1f}) mm, "
-        f"offset=({offset_x:.1f}, {offset_y:.1f}) mm, "
-        f"gap={A5_INTER_PIECE_GAP_MM:.1f} mm, "
-        f"place_robot_fine=({PLACE_ROBOT_FINE_OFFSET_X_MM:.1f}, {PLACE_ROBOT_FINE_OFFSET_Y_MM:.1f}) mm, "
-        f"safety_shift_robot=({best['place_safety_shift_robot'][0]:+.1f}, {best['place_safety_shift_robot'][1]:+.1f}) mm"
+        f"offset=({offset_x:.1f}, {offset_y:.1f}) mm"
     )
 
     return best
@@ -2350,11 +1623,6 @@ def main():
     if len(puzzle.pieces_) == 0:
         raise ValueError("Keine Puzzleteile erkannt!")
 
-    # Vor dem Solver sichern, weil solve_puzzle() die Piece-Pixel mutiert.
-    # Diese Snapshots werden später verwendet, um die echte benötigte Rotation
-    # per Form-Matching zu berechnen statt blind TRANSFORM_REPORT zu vertrauen.
-    initial_piece_points = snapshot_piece_points_by_id(puzzle.pieces_)
-
     print("[RUN] Löse Puzzle...")
     puzzle.solve_puzzle()
     print("[RUN] Puzzle gelöst.")
@@ -2365,7 +1633,6 @@ def main():
         save_debug_image(f"{i:02d}_debug.png", debug_img)
 
     solved_pick_centers = detect_pick_centers_on_solved_puzzle(puzzle.pieces_)
-    solved_piece_points = snapshot_piece_points_by_id(puzzle.pieces_)
     solved_piece_stats = {}
     for piece in puzzle.pieces_:
         min_x, min_y, max_x, max_y = piece.get_bbox()
@@ -2411,32 +1678,12 @@ def main():
         if solved_pick is not None:
             cmd["solved_pick_px"] = (float(solved_pick["col"]), float(solved_pick["row"]))
 
-        # Rotation robuster bestimmen: nicht mehr nur TRANSFORM_REPORT verwenden,
-        # sondern ursprüngliche und gelöste Teilform relativ zum Greifpunkt matchen.
-        if pick_center is not None and solved_pick is not None:
-            shape_rotation = estimate_piece_rotation_from_shape(
-                initial_piece_points.get(int(report["piece_id"])),
-                (float(pick_center["col"]), float(pick_center["row"])),
-                solved_piece_points.get(int(report["piece_id"])),
-                (float(solved_pick["col"]), float(solved_pick["row"])),
-                piece_id=int(report["piece_id"]),
-            )
-            if shape_rotation is not None:
-                cmd["rotation_from_transform_report_deg"] = cmd["rotation_deg"]
-                cmd["rotation_deg"] = shape_rotation
-                cmd["rotation_source"] = "shape_match"
-            else:
-                cmd["rotation_source"] = "transform_report"
-        else:
-            cmd["rotation_source"] = "transform_report"
-
         stats = solved_piece_stats.get(int(report["piece_id"]))
         if stats is not None:
             cmd["solved_bbox_center_px"] = stats["bbox_center_px"]
 
         robot_commands.append(cmd)
 
-    robot_commands = deduplicate_robot_commands_by_piece(robot_commands)
     robot_commands = sorted(
         robot_commands,
         key=lambda x: x["piece_id"],
@@ -2456,13 +1703,8 @@ def main():
     )
 
     if SEND_TO_ROBOT:
-        # Vor dem ersten Roboter-MOVE alles prüfen, damit ein ungültiger Punkt
-        # nicht erst mitten im Ablauf auffällt, wenn bereits ein Teil angesaugt ist.
-        validate_robot_plan(robot_commands)
         send_to_robot(robot_commands)
     else:
-        # Auch ohne Senden prüfen, damit Grenzfehler bereits im Debuglauf sichtbar sind.
-        validate_robot_plan(robot_commands)
         print("\n[ROBOT] SEND_TO_ROBOT=False -> Es wurde nichts an den Roboter gesendet.")
 
     log_duration("total run", t_total)
@@ -2474,3 +1716,380 @@ if __name__ == "__main__":
     main()
 
 
+
+# ======================
+# File: tests\run_solver.py
+# ======================
+
+import os
+import sys
+import cv2
+from multiprocessing import freeze_support
+
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
+
+from solver.Puzzle.Puzzle import Puzzle
+
+
+IMAGE_PATH = r"assets\puzzle_images\Image (3).jpg"
+
+DEBUG_DIR = os.path.join(PROJECT_ROOT, "assets", "DEBUG_Puzzle_Solver")
+os.makedirs(DEBUG_DIR, exist_ok=True)
+
+
+def save_debug_images(puzzle, prefix="debug"):
+    debug_images = puzzle.get_debug_images()
+
+    for i, img in enumerate(debug_images):
+        out = os.path.join(DEBUG_DIR, f"{prefix}_{i:02d}.png")
+        ok = cv2.imwrite(out, img)
+        print(f"[DEBUG] Saved {out}: {ok}")
+
+
+def main():
+    print("[SOLVER] Starte Solver ohne ArUco...")
+    print(f"[SOLVER] Input: {IMAGE_PATH}")
+
+    puzzle = Puzzle(IMAGE_PATH, log_fn=print)
+
+    try:
+        print("[SOLVER] Extrahiere Puzzleteile...")
+        puzzle.extract_pieces()
+
+        print(f"[SOLVER] Extrahierte Teile: {len(puzzle.pieces_)}")
+
+        save_debug_images(puzzle, prefix="extract")
+
+        if len(puzzle.pieces_) == 0:
+            raise ValueError("Keine Puzzleteile erkannt")
+
+        print("[SOLVER] Starte Solver...")
+        puzzle.solve_puzzle()
+
+        print("[SOLVER] Puzzle erfolgreich gelöst")
+
+    except Exception as e:
+        print(f"[SOLVER] Fehler: {e}")
+
+    finally:
+        save_debug_images(puzzle, prefix="final")
+
+
+if __name__ == "__main__":
+    freeze_support()
+    main()
+
+# ======================
+# File: tests\test_vision_pipeline.py
+# ======================
+
+import os
+import sys
+import cv2
+import json
+from multiprocessing import freeze_support
+
+# =========================
+# CONFIG
+# =========================
+
+IMAGE_PATH = r"assets\Bilder aruco marker\test\Image (2).jpg"
+
+WORKSPACE_SIZE_PX = (1200, 800)
+WORKSPACE_SIZE_MM = (400.0, 300.0)
+
+CROP_MARGIN_RATIO_X = 0.12
+CROP_MARGIN_RATIO_Y = 0.12
+
+SAFE_Z_MM = 00.0
+PICK_Z_MM = 00.0
+
+# Erst auf False lassen, damit nur JSON ausgegeben wird.
+SEND_TO_ROBOT = False
+ROBOT_PORT = "COM3"
+
+DEBUG_DIR = os.path.join("assets", "DEBUG")
+os.makedirs(DEBUG_DIR, exist_ok=True)
+
+ROBOT_ORIGIN_OFFSET_X_MM = 0.0
+ROBOT_ORIGIN_OFFSET_Y_MM = 0.0
+
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
+
+from solver.Vision import VisionPipeline
+from solver.Puzzle.Puzzle import Puzzle
+from solver.Vision.robot_coordinates import RobotCoordinateMapper
+
+try:
+    from solver.Robot.robot_interface import RobotInterface
+except Exception:
+    RobotInterface = None
+
+
+def show_resized(title, img, scale=0.6):
+    preview = cv2.resize(img, None, fx=scale, fy=scale)
+    cv2.imshow(title, preview)
+
+
+def parse_transform_report(log_line):
+    parts = log_line.split()
+
+    if len(parts) != 9 or parts[0] != "TRANSFORM_REPORT":
+        return None
+
+    return {
+        "piece_id": int(parts[1]),
+        "x0": float(parts[2]),
+        "y0": float(parts[3]),
+        "x1": float(parts[4]),
+        "y1": float(parts[5]),
+        "rotation_deg": float(parts[8]),
+    }
+
+
+def build_pick_place_sequence(cmd):
+    """
+    Erzeugt die Bewegungssequenz für ein einzelnes Puzzleteil.
+    Werte bleiben intern in mm.
+    robot_interface.py wandelt bei send_units='cm' automatisch in cm um.
+    """
+    return [
+        {
+            "type": "move",
+            "description": "above_pick",
+            "piece_id": cmd["piece_id"],
+            "x_mm": cmd["pick_x_mm"],
+            "y_mm": cmd["pick_y_mm"],
+            "z_mm": SAFE_Z_MM,
+        },
+        {
+            "type": "move",
+            "description": "down_to_pick",
+            "piece_id": cmd["piece_id"],
+            "x_mm": cmd["pick_x_mm"],
+            "y_mm": cmd["pick_y_mm"],
+            "z_mm": PICK_Z_MM,
+        },
+        {
+            "type": "suction",
+            "description": "suction_on",
+            "piece_id": cmd["piece_id"],
+        },
+        {
+            "type": "move",
+            "description": "lift_piece",
+            "piece_id": cmd["piece_id"],
+            "x_mm": cmd["pick_x_mm"],
+            "y_mm": cmd["pick_y_mm"],
+            "z_mm": SAFE_Z_MM,
+        },
+        {
+            "type": "move",
+            "description": "above_place",
+            "piece_id": cmd["piece_id"],
+            "x_mm": cmd["place_x_mm"],
+            "y_mm": cmd["place_y_mm"],
+            "z_mm": SAFE_Z_MM,
+            "rotation_deg": cmd["rotation_deg"],
+        },
+        {
+            "type": "move",
+            "description": "down_to_place",
+            "piece_id": cmd["piece_id"],
+            "x_mm": cmd["place_x_mm"],
+            "y_mm": cmd["place_y_mm"],
+            "z_mm": PICK_Z_MM,
+            "rotation_deg": cmd["rotation_deg"],
+        },
+        {
+            "type": "suction",
+            "description": "suction_off",
+            "piece_id": cmd["piece_id"],
+        },
+        {
+            "type": "move",
+            "description": "lift_after_place",
+            "piece_id": cmd["piece_id"],
+            "x_mm": cmd["place_x_mm"],
+            "y_mm": cmd["place_y_mm"],
+            "z_mm": SAFE_Z_MM,
+        },
+    ]
+
+
+def firmware_move_json(step):
+    """
+    Nur zur Anzeige: so sieht der MOVE-Befehl für die Firmware aus.
+    Da die Firmware mit Steps pro mm rechnet, geben wir hier mm aus.
+    """
+    return {
+        "MOVE": {
+            "X": round((step["x_mm"] + ROBOT_ORIGIN_OFFSET_X_MM) / 10.0, 3),
+            "Y": round((step["y_mm"] + ROBOT_ORIGIN_OFFSET_Y_MM) / 10.0, 3),
+            "Z": round(step["z_mm"] / 10.0, 3),
+        }
+    }
+
+
+def print_robot_plan(robot_commands):
+    print("\n[ROBOT COMMANDS MM]")
+
+    for cmd in robot_commands:
+        print(
+            f"Piece {cmd['piece_id']}: "
+            f"Pick=({cmd['pick_x_mm']}, {cmd['pick_y_mm']}) mm, "
+            f"Place=({cmd['place_x_mm']}, {cmd['place_y_mm']}) mm, "
+            f"Rot={cmd['rotation_deg']}°"
+        )
+
+    print("\n[ROBOT JSON SEQUENCE FOR FIRMWARE]")
+
+    for cmd in robot_commands:
+        print(f"\nPiece {cmd['piece_id']}:")
+        sequence = build_pick_place_sequence(cmd)
+
+        for step in sequence:
+            if step["type"] == "TODO":
+                print(f"# TODO: {step['description']}")
+                continue
+
+            payload = firmware_move_json(step)
+            print(json.dumps(payload))
+
+
+def send_robot_plan(robot_commands):
+    if RobotInterface is None:
+        raise RuntimeError(
+            "RobotInterface konnte nicht importiert werden. "
+            "Prüfe solver/Robot/robot_interface.py und ob pyserial installiert ist."
+        )
+
+    robot = RobotInterface(port=ROBOT_PORT, send_units="cm")
+
+    try:
+        print("[ROBOT] READY")
+        robot.ready()
+
+        for cmd in robot_commands:
+            print(f"[ROBOT] Starte Piece {cmd['piece_id']}")
+
+            sequence = build_pick_place_sequence(cmd)
+
+            for step in sequence:
+                if step["type"] == "TODO":
+                    print(f"[ROBOT TODO] {step['description']}")
+                    continue
+
+                robot.move_xyz_mm(
+                step["x_mm"] + ROBOT_ORIGIN_OFFSET_X_MM,
+                step["y_mm"] + ROBOT_ORIGIN_OFFSET_Y_MM,
+                step["z_mm"],
+                )
+
+        print("[ROBOT] Fertig")
+    finally:
+        robot.close()
+
+
+def main():
+    pipeline = VisionPipeline(
+        marker_length_mm=20.0,
+        workspace_output_size_px=WORKSPACE_SIZE_PX,
+        workspace_mm_size=WORKSPACE_SIZE_MM,
+        aruco_ids=(0, 1, 2, 3),
+    )
+
+    result = pipeline.process_image_from_path(IMAGE_PATH)
+
+    show_resized("ArUco Debug", result["aruco_debug"])
+    show_resized("Warped Workspace", result["warped_workspace"])
+
+    warped = result["warped_workspace"]
+    if warped is None:
+        raise ValueError("Warped workspace ist None -> ArUco Fehler")
+
+    h, w = warped.shape[:2]
+    margin_x = int(w * CROP_MARGIN_RATIO_X)
+    margin_y = int(h * CROP_MARGIN_RATIO_Y)
+
+    warped_inner = warped[margin_y:h - margin_y, margin_x:w - margin_x].copy()
+    show_resized("Warped Inner", warped_inner)
+
+    temp_dir = os.path.join(PROJECT_ROOT, "assets", "TEST")
+    os.makedirs(temp_dir, exist_ok=True)
+
+    warped_path = os.path.join(temp_dir, "warped_workspace_temp.png")
+    cv2.imwrite(warped_path, warped_inner)
+
+    cv2.imwrite(os.path.join(DEBUG_DIR, "warped_workspace.png"), warped)
+    cv2.imwrite(os.path.join(DEBUG_DIR, "warped_inner.png"), warped_inner)
+
+    print(f"[TEST] Warped workspace gespeichert unter: {warped_path}")
+    print("[TEST] Starte Puzzle-Workflow...")
+
+    transformation_logs = []
+
+    def record_log(msg):
+        print(msg)
+        if msg.startswith("TRANSFORM_REPORT"):
+            transformation_logs.append(msg)
+
+    puzzle = Puzzle(warped_path, log_fn=record_log)
+
+    puzzle.extract_pieces()
+
+    debug_images = puzzle.get_debug_images()
+    for i, img in enumerate(debug_images):
+        path = os.path.join(DEBUG_DIR, f"piece_{i}.png")
+        cv2.imwrite(path, img)
+        print(f"[DEBUG] Saved: {path}")
+
+    print(f"[TEST] Extrahierte Teile: {len(puzzle.pieces_)}")
+
+    if len(puzzle.pieces_) == 0:
+        raise ValueError("Keine Puzzleteile erkannt!")
+
+    print("[TEST] Starte Solver...")
+    puzzle.solve_puzzle()
+    print("[TEST] Solver fertig")
+
+    mapper = RobotCoordinateMapper(
+        workspace_size_px=WORKSPACE_SIZE_PX,
+        workspace_size_mm=WORKSPACE_SIZE_MM,
+        crop_offset_px=(margin_x, margin_y),
+    )
+
+    robot_commands = []
+
+    for log in transformation_logs:
+        report = parse_transform_report(log)
+        if report is None:
+            continue
+
+        cmd = mapper.transform_report_to_robot_command(report)
+        robot_commands.append(cmd)
+
+    robot_commands = sorted(robot_commands, key=lambda x: x["piece_id"])
+
+    print_robot_plan(robot_commands)
+
+    if SEND_TO_ROBOT:
+        send_robot_plan(robot_commands)
+    else:
+        print("\n[ROBOT] SEND_TO_ROBOT=False -> Es wurde nichts an den Roboter gesendet.")
+
+    debug_images = puzzle.get_debug_images()
+    if debug_images:
+        show_resized("Last Debug Image", debug_images[-1], scale=0.8)
+
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
+
+
+if __name__ == "__main__":
+    freeze_support()
+    main()
