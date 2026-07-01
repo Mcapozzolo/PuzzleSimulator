@@ -336,10 +336,20 @@ def _dfs(seams, si, pieces, parent, members, cell, off, acc_cost, budget, best, 
     we let the scores decide globally: a locally-cheap false pairing can't win if it forces
     a higher-total or structurally-invalid whole. Branch-and-bound on accumulated cost."""
     if len(members) == 1:
-        if acc_cost < best['cost'] and _structure_ok(pieces, cell, off, cands):
-            best['cost'] = acc_cost
-            best['cell'] = dict(cell)
-            best['off'] = dict(off)
+        if _structure_ok(pieces, cell, off, cands):
+            _cv = list(cell.values())
+            _er = max(r[0] for r in _cv) - min(r[0] for r in _cv) + 1
+            _ec = max(r[1] for r in _cv) - min(r[1] for r in _cv) + 1
+            # The competition A5 surface is landscape (wider than tall). Prefer
+            # assemblies where columns > rows (landscape grid). Portrait grids
+            # get a penalty so the DFS only accepts them when they're significantly
+            # cheaper — preventing false-positive 2×3 solutions when 3×2 is correct.
+            portrait_penalty = 100.0 if _er > _ec else 0.0
+            effective_cost = acc_cost + portrait_penalty
+            if effective_cost < best['cost']:
+                best['cost'] = effective_cost
+                best['cell'] = dict(cell)
+                best['off'] = dict(off)
         return
     if acc_cost >= best['cost']:        # bound: can't beat the incumbent
         return
@@ -884,6 +894,59 @@ def _geometric_layout(pieces, cell, off, log=print, green=False):
     n = len(pieces)
 
     _axis_lock_all(pieces, off, log=log)
+
+    # --- Post-hoc border-direction correction ---
+    # After axis-lock, each piece's BORDER edges should physically point in the
+    # expected exterior directions for their assigned grid cell.  A systematic
+    # 90°/180° mismatch can occur when the DFS committed to an off value that
+    # is structurally valid (passes _structure_ok) but geometrically wrong by
+    # one step — typically because the seam-score difference between two
+    # adjacent off values was smaller than the measurement noise on connector
+    # shapes.  The BORDER edges are far more reliably classified than connector
+    # shapes, so a disagreement between where the border edge IS pointing (post
+    # axis-lock) and where it SHOULD point (from cell position) reveals the
+    # error unambiguously, and the minimum-step correction (90, -90, or 180°)
+    # is applied to the full piece geometry and tracked in small_solver_rotation_deg.
+    _ph_rows = [cell[i][0] for i in range(n)]
+    _ph_cols = [cell[i][1] for i in range(n)]
+    _ph_r0, _ph_c0 = min(_ph_rows), min(_ph_cols)
+    _ph_H = max(_ph_rows) - _ph_r0 + 1
+    _ph_W = max(_ph_cols) - _ph_c0 + 1
+    for i, p in enumerate(pieces):
+        bi = _border_edge_info(p)          # geometric directions AFTER axis-lock
+        if not bi:
+            continue
+        nr = cell[i][0] - _ph_r0
+        nc = cell[i][1] - _ph_c0
+        expected = _expected_borders_for_cell(nr, nc, _ph_H, _ph_W)
+        if not expected:
+            continue
+        current = frozenset(geo for _, geo in bi)
+        if current == expected:
+            continue                        # already correct, nothing to fix
+        c_ph = _centroid(p)
+        for step_deg in (90.0, -90.0, 180.0):
+            a = np.deg2rad(step_deg)
+            R_ph = np.array([[np.cos(a), -np.sin(a)],
+                             [np.sin(a),  np.cos(a)]], dtype=float)
+            trial = frozenset(
+                _snap_xy_to_cardinal(
+                    (np.asarray(p.edges_[k].shape, dtype=float).mean(0) - c_ph) @ R_ph.T
+                )
+                for k, _ in bi
+            )
+            if trial == expected:
+                log(f"[small/border-post-fix] piece{getattr(p,'id',i)}: "
+                    f"geom={current} expected={expected} -> +{step_deg:.0f}° correction")
+                for e in p.edges_:
+                    e.shape = np.round(
+                        (np.asarray(e.shape, dtype=float) - c_ph) @ R_ph.T + c_ph
+                    ).astype(int)
+                _apply_rigid_to_pixels(p, R_ph, c_ph)
+                prev = float(getattr(p, "small_solver_rotation_deg", 0.0))
+                p.small_solver_rotation_deg = _ssr_norm_deg(prev + step_deg)
+                break
+    # --- end post-hoc correction ---
 
     cellmap = {cell[i]: i for i in range(n)}
     cons = []

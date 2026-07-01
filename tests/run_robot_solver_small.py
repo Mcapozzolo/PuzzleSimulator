@@ -13,9 +13,9 @@ print("[BOOT] run_robot_solver.py wurde gestartet", flush=True)
 # CONFIG
 # =========================
 
-USE_CAMERA = False
+USE_CAMERA = True
 CAMERA_INDEX = 1
-SEND_TO_ROBOT = False
+SEND_TO_ROBOT = True
 ROBOT_PORT = "COM3"
 
 DEBUG_SAVE = True
@@ -50,7 +50,7 @@ CROP_MARGIN_RATIO_X = 0.02
 CROP_MARGIN_RATIO_Y = 0.02
 
 SAFE_Z_MM = 1.0
-PICK_Z_MM = 18.0
+PICK_Z_MM = 5.0
 
 PUMP_ON_SETTLE_SECONDS = 1.0
 PUMP_OFF_SETTLE_SECONDS = 2.0
@@ -131,7 +131,7 @@ A5_CENTER_MARGIN_Y_MM = 5.0
 # - Platzierung soll 15 mm weiter in negative Roboter-X-Richtung
 # - Platzierung soll 5 mm weiter in negative Roboter-Y-Richtung
 # Wichtig: Das muss hier negativ sein; positive X verschiebt in die falsche Richtung.
-PLACE_ROBOT_FINE_OFFSET_X_MM = 18.0
+PLACE_ROBOT_FINE_OFFSET_X_MM = 8.0   # War 18.0; -10mm Roboter-X = +10mm nach rechts in A5
 PLACE_ROBOT_FINE_OFFSET_Y_MM = 0.0   # War -5.0, aber das drückt Unterreihe ans Y-Minimum (2mm)
 
 # Firmware akzeptiert laut Fehlermeldung keine negativen Y-Werte.
@@ -2579,7 +2579,15 @@ def align_solution_to_a5(robot_commands, solution_points_px, solved_piece_points
         # Kleine Zusatzrotationen um 180° sind okay, 90° nur wenn wirklich nötig.
         extra_rotation_penalty = 0 if extra_rot in [0, 180] else 1_000
 
-        score = landscape_penalty + extra_rotation_penalty + unused_area * 0.01
+        # Tie-breaker: wenn landscape_penalty und extra_rotation_penalty identisch
+        # sind (z.B. extra_rot=0 und extra_rot=180 erzeugen beide ein landscape-
+        # Puzzle), bevorzuge die Kandidaten mit layout_rot nahe bei 0°. Ohne diesen
+        # Tie-breaker gewinnt immer extra_rot=0 — was zu layout_rot≈180° führen
+        # kann, wenn base_deskew≈180° ist. Das addiert allen Teilen systematisch
+        # ≈180° auf die Platzierungsrotation → alles steht auf dem Kopf.
+        layout_rot_nearness_penalty = abs(normalize_rotation_deg(layout_rot)) * 0.001
+
+        score = landscape_penalty + extra_rotation_penalty + unused_area * 0.01 + layout_rot_nearness_penalty
 
         candidates.append({
             "score": score,
