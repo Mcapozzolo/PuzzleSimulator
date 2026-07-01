@@ -1,4 +1,3 @@
-
 import cv2
 import numpy as np
 import os
@@ -8,6 +7,7 @@ import logging as log
 from .Distance import real_edge_compute, generated_edge_compute
 from .Extractor import Extractor
 from .Mover import stick_pieces
+from .SmallSolver import solve_small
 from .utils import rotate
 
 from .Enums import (
@@ -73,6 +73,50 @@ class Puzzle:
             len(self.pieces_), len(self.border_pieces)
         )
         self.extremum = (-1, -1, 1, 1)
+
+
+    def solve_puzzle_small(self, fallback=True):
+        """Solve 4-9 piece rectangular puzzles with the agglomerative SmallSolver.
+
+        This is intended for the new 6-piece competition parts. It first builds a
+        valid 2x3 / 3x2 grid from the best edge seams and only then materialises
+        the geometry. If it is not applicable, the old solver can be used as a
+        fallback.
+        """
+        if self.pieces_ is None:
+            self.extract_pieces()
+
+        self.log_fn(">>> START small/agglomerative solver")
+        solved = solve_small(self.pieces_, green=False, log=self.log_fn)
+
+        if not solved:
+            self.log_fn(">>> small solver failed or not applicable")
+            if fallback:
+                self.log_fn(">>> fallback to old backtracking solver")
+                return self.solve_puzzle()
+            return False
+
+        self.translate_puzzle()
+
+        try:
+            self.append_debug_step_views()
+        except Exception:
+            pass
+
+        # Emit simple transform-style lines for compatibility with the simulator log.
+        # For robot runs, prefer reading piece.coord / solved geometry directly.
+        for piece in self.pieces_:
+            try:
+                pid = getattr(piece, "id", self.pieces_.index(piece) + 1)
+                minX, minY, maxX, maxY = piece.get_bbox()
+                cx = int((minX + maxX) / 2)
+                cy = int((minY + maxY) / 2)
+                self.log_fn(f"SMALL_SOLVER_PLACE {pid} grid={getattr(piece, 'coord', None)} center=({cx},{cy})")
+            except Exception:
+                pass
+
+        self.log_fn(">>> small/agglomerative solver done")
+        return True
 
     def solve_puzzle(self):
         log.info("Solving puzzle...")
@@ -784,8 +828,10 @@ class Puzzle:
                 for ip, _ in enumerate(e.shape):
                     e.shape[ip] += (-minX, -minY)
 
+        # edge.shape ist (x=col, y=row), piece.pixels ist (row, col).
+        # Deshalb muessen die Pixel mit vertauschten Komponenten verschoben werden.
         for p in self.pieces_:
-            p.translate(minX, minY)
+            p.translate(-minY, -minX)
 
     def export_pieces_image(self):
         """
@@ -1143,5 +1189,3 @@ class Puzzle:
         """
         edge_img = self.render_puzzle_view(show_fill=False, show_edges=True, white_bg=True)
         self.debug_images_.append(edge_img)
-
-
