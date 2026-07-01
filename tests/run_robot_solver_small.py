@@ -50,7 +50,7 @@ CROP_MARGIN_RATIO_X = 0.02
 CROP_MARGIN_RATIO_Y = 0.02
 
 SAFE_Z_MM = 1.0
-PICK_Z_MM  = 19.0
+PICK_Z_MM  = 18.0
 PLACE_Z_MM = 13.0  # Teile fallen die restlichen mm ins A5
 
 PUMP_ON_SETTLE_SECONDS = 1.0
@@ -248,7 +248,7 @@ ROBOT_MAX_X_MM = 350.0
 ROBOT_MIN_Y_MM = 0.0
 ROBOT_MAX_Y_MM = 350.0
 ROBOT_MIN_Z_MM = 0.0
-ROBOT_MAX_Z_MM = 18.0
+ROBOT_MAX_Z_MM = 20.0
 # Damit das gelöste Puzzle nicht exakt auf der A5-Ecke beginnt,
 # sondern etwas nach innen verschoben liegt.
 
