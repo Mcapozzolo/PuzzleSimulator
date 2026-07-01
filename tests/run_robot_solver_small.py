@@ -50,7 +50,8 @@ CROP_MARGIN_RATIO_X = 0.02
 CROP_MARGIN_RATIO_Y = 0.02
 
 SAFE_Z_MM = 1.0
-PICK_Z_MM = 5.0
+PICK_Z_MM  = 19.0
+PLACE_Z_MM = 13.0  # Teile fallen die restlichen mm ins A5
 
 PUMP_ON_SETTLE_SECONDS = 1.0
 PUMP_OFF_SETTLE_SECONDS = 2.0
@@ -1962,7 +1963,7 @@ def build_pick_place_sequence(cmd):
             "type": "move",
             "x_mm": place_x,
             "y_mm": place_y,
-            "z_mm": PICK_Z_MM,
+            "z_mm": PLACE_Z_MM,
             "rotation_deg": final_rot,
         },
         {
