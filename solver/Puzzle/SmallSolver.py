@@ -1277,6 +1277,122 @@ def _dfs_border_assign(border_info, W, H, n):
     return None
 
 
+# --------------------------------------------------------------------------- #
+# Geometry-based border detection (rotation-invariant fallback)
+# Used when pieces are at steep angles and corner detection gives wrong types.
+# --------------------------------------------------------------------------- #
+
+def _geo_border_count(piece, max_rel_dev=0.12, min_chord_px=8.0):
+    """Count how many of a piece's edges are geometrically flat (= border).
+
+    A flat edge has a maximum perpendicular deviation from its chord that is
+    less than max_rel_dev * chord_length.  This is invariant to the global
+    rotation of the piece on the light table.
+    """
+    count = 0
+    for e in piece.edges_:
+        pts = np.asarray(e.shape, dtype=float)
+        if len(pts) < 3:
+            continue
+        chord = pts[-1] - pts[0]
+        L = float(np.linalg.norm(chord))
+        if L < min_chord_px:
+            continue
+        u = chord / L
+        nrm = np.array([-u[1], u[0]])
+        max_dev = float(np.max(np.abs((pts - pts[0]) @ nrm)))
+        if max_dev / L < max_rel_dev:
+            count += 1
+    return count
+
+
+def _reclassify_borders_from_geometry(pieces, geo_counts):
+    """Re-mark edge types based on geometric flatness to match geo_counts.
+
+    For each piece, find the geo_counts[i] flattest edges and set them to
+    BORDER; the rest become UNDEFINED so _structure_ok stays lenient.
+    """
+    for p, n_border in zip(pieces, geo_counts):
+        # Compute relative max-deviation for every edge
+        devs = []
+        for e in p.edges_:
+            pts = np.asarray(e.shape, dtype=float)
+            if len(pts) < 3:
+                devs.append(1e9)
+                continue
+            chord = pts[-1] - pts[0]
+            L = float(np.linalg.norm(chord))
+            if L < 1.0:
+                devs.append(1e9)
+                continue
+            u = chord / L
+            nrm = np.array([-u[1], u[0]])
+            devs.append(float(np.max(np.abs((pts - pts[0]) @ nrm))) / L)
+        order = sorted(range(len(devs)), key=lambda i: devs[i])
+        border_set = set(order[:n_border])
+        for ki, e in enumerate(p.edges_):
+            if ki in border_set:
+                e.type = TypeEdge.BORDER
+            elif e.type == TypeEdge.BORDER:
+                # Was BORDER but isn't geometrically flat → UNDEFINED
+                e.type = TypeEdge.UNDEFINED
+        p.nBorders_ = n_border
+
+
+def _edge_rel_deviation(edge):
+    """Max perpendicular deviation of an edge from its chord, relative to chord length.
+    Small = flat (border-like). Returns a large value for degenerate edges."""
+    pts = np.asarray(edge.shape, dtype=float)
+    if len(pts) < 3:
+        return 1e9
+    chord = pts[-1] - pts[0]
+    L = float(np.linalg.norm(chord))
+    if L < 1.0:
+        return 1e9
+    u = chord / L
+    nrm = np.array([-u[1], u[0]])
+    return float(np.max(np.abs((pts - pts[0]) @ nrm))) / L
+
+
+def _force_borders_for_competition(pieces, n_corners=4, n_edges=2, log=print):
+    """Force border classification for a (n_corners + n_edges)-piece competition grid.
+
+    When both type-based and geometry-based detection fail (e.g. piece 6 has
+    nBorders_=0 because all its edges look curved at steep angles), we still know
+    the grid layout: 4 corner pieces (2 borders each) and 2 edge pieces (1 border).
+
+    Strategy:
+      1. For every piece, compute the relative deviation of each edge (flat = small).
+      2. Each piece gets a "corner score" = sum of the 2 flattest edge deviations.
+      3. Sort pieces by corner score ascending → flattest 4 = corners, next 2 = edges.
+      4. Re-mark edge types using _reclassify_borders_from_geometry.
+    """
+    corner_scores = []
+    for p in pieces:
+        devs = sorted(_edge_rel_deviation(e) for e in p.edges_)
+        # corner score = sum of 2 smallest deviations (lower = more corner-like)
+        corner_scores.append(devs[0] + devs[1] if len(devs) >= 2 else devs[0] if devs else 1e9)
+
+    order = sorted(range(len(pieces)), key=lambda i: corner_scores[i])
+    corner_set = set(order[:n_corners])
+    edge_set   = set(order[n_corners:n_corners + n_edges])
+
+    geo_counts = []
+    for i in range(len(pieces)):
+        if i in corner_set:
+            geo_counts.append(2)
+        elif i in edge_set:
+            geo_counts.append(1)
+        else:
+            geo_counts.append(0)
+
+    log(f"[small/force-borders] corner-scores: "
+        f"{[round(corner_scores[i], 3) for i in order]} → "
+        f"assigned {geo_counts}")
+    _reclassify_borders_from_geometry(pieces, geo_counts)
+    return geo_counts
+
+
 def solve_small(pieces, green=False, log=print):
     """Assemble a small (4-9 piece, w×h ≥2 grid) puzzle.
 
@@ -1300,14 +1416,38 @@ def solve_small(pieces, green=False, log=print):
     nE = sum(1 for p in pieces if p.nBorders_ == 1)
     nX = sum(1 for p in pieces if p.nBorders_ == 0)
     cands = _candidate_dims(n, nC, nE, nX) if 4 <= n <= 9 else []
+    if not cands and 4 <= n <= 9:
+        # Type-based classification failed — common when pieces lie at steep angles on
+        # the light table (corner detection becomes unstable at 30-45° → wrong nBorders_).
+        # Fall back to a GEOMETRY-BASED border detection: flat edges (deviation from chord
+        # < 12 % of chord length) are borders regardless of their classified type.
+        log(f"[small] type-based counts ({nC}C/{nE}E/{nX}X) don't match any grid — "
+            f"piece orientations may be steep; trying geometry-based border detection")
+        geo_counts = [_geo_border_count(p) for p in pieces]
+        geo_nC = sum(1 for c in geo_counts if c == 2)
+        geo_nE = sum(1 for c in geo_counts if c == 1)
+        geo_nX = sum(1 for c in geo_counts if c == 0)
+        cands = _candidate_dims(n, geo_nC, geo_nE, geo_nX)
+        if cands:
+            log(f"[small] geometry-based counts ({geo_nC}C/{geo_nE}E/{geo_nX}X) "
+                f"→ cands={cands}; re-marking edge types")
+            _reclassify_borders_from_geometry(pieces, geo_counts)
+        else:
+            # Last resort: for the 6-piece competition puzzle force the known grid shape
+            # AND forcibly assign border counts based on per-edge flatness so that
+            # _structure_ok can still place every piece (including pieces with
+            # nBorders_=0 like piece 6 in steep-angle arrangements).
+            if n == 6:
+                log("[small] geometry also uncertain → forcing 3×2 grid + border assignment")
+                cands = [(2, 3)]
+                _force_borders_for_competition(pieces, n_corners=4, n_edges=2, log=log)
+            else:
+                log(f"[small] not applicable: {n} pieces, no valid grid found "
+                    f"(type={nC}C/{nE}E/{nX}X, geo={geo_nC}C/{geo_nE}E/{geo_nX}X)")
+                return False
     if not cands:
-        nOver = sum(1 for p in pieces if p.nBorders_ > 2)
         log(f"[small] not applicable: {n} pieces, {nC} corners / {nE} edges / {nX} centers "
             f"— no rectangle matches this classification")
-        log(f"[small] per-piece border counts: {[p.nBorders_ for p in pieces]}")
-        if nOver:
-            log(f"[small] {nOver} piece(s) have >2 flat edges — upstream edge classification "
-                f"over-flagged connectors as BORDER (a real piece has at most 2 flat sides).")
         return False
     log(f"[small] candidate grid dim(s): {cands}")
 

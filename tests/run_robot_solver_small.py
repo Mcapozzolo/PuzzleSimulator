@@ -15,8 +15,8 @@ print("[BOOT] run_robot_solver.py wurde gestartet", flush=True)
 
 USE_CAMERA = True
 CAMERA_INDEX = 1
-SEND_TO_ROBOT = True
-ROBOT_PORT = "COM3"
+SEND_TO_ROBOT = False
+ROBOT_PORT = "/dev/serial/by-id/usb-Arduino_UNO_R4_Minima_320F192434313938A19D33334B572EE8-if00"  # Linux
 
 DEBUG_SAVE = True
 USE_SCREW_HOLE_PICK = True
